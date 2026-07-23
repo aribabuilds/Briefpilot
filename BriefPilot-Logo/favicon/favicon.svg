@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
+
+  <defs>
+    <linearGradient id="tileGradicfavicon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="needleGradicfavicon" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#10B981"/>
+      <stop offset="0.52" stop-color="#10B981"/>
+      <stop offset="0.52" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <filter id="softShadowicfavicon" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="3.2" stdDeviation="4.5" flood-color="#0F172A" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+<rect x="4" y="4" width="92" height="92" rx="23" fill="url(#tileGradicfavicon)"/>
+<rect x="4" y="4" width="92" height="92" rx="23" fill="#ffffff" opacity="0.05"/>
+<path d="M 50.0 74.78 L 59.44 52.36 L 40.56 52.36 Z" fill="#FFFFFF"/>
+<path d="M 50.0 29.94 L 59.44 52.36 L 40.56 52.36 Z" fill="#10B981"/>
+<circle cx="50.0" cy="52.36" r="4.01" fill="#FFFFFF"/>
+</svg>
