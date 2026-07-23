@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +20,14 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     cors_origins: list[str] = ["http://localhost:3000"]
     database_url: str = "postgresql://briefpilot:briefpilot@localhost:5432/briefpilot"
+
+    ai_provider: Literal["openai", "azure_openai"] = "openai"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_deployment: str | None = None
+    azure_openai_api_version: str = "2024-08-01-preview"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

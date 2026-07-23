@@ -43,4 +43,5 @@ jobs:
       - run: ruff check app
       - run: black --check app
       - run: isort --check-only app
+      - run: mypy app
       - run: pytest

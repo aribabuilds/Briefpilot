@@ -18,10 +18,15 @@ logic, authentication, OCR, or AI features are implemented yet — see
 
 - **Frontend**: Next.js (App Router) + TypeScript + React + Tailwind CSS
 - **Backend**: Python 3.13 + FastAPI + Pydantic v2 + Uvicorn, layered as
-  `api → services → repositories → models`
+  `api → services → repositories → models`, fully type-hinted and checked
+  with `mypy --strict`
+- **AI integration**: provider-agnostic `AIService` abstraction
+  (`backend/app/services/ai/`) — business logic depends only on the
+  interface; OpenAI/Azure OpenAI are swappable adapters (see
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md))
 - **Database**: PostgreSQL 16, run via Docker
 - **Dev/CI**: Docker Compose for local orchestration, GitHub Actions for
-  lint/test/build validation
+  lint/type-check/test/build validation
 
 Full rationale for the folder structure and how future modules (OCR, AI,
 case management) will fit in is documented in
@@ -48,6 +53,7 @@ briefpilot/
 │       ├── models/               Domain / ORM entities
 │       ├── schemas/              Pydantic request/response contracts
 │       ├── services/             Business logic
+│       │   └── ai/                AIService abstraction + OpenAI/Azure adapters
 │       ├── repositories/         Data access
 │       ├── utils/                Shared helpers
 │       └── tests/                Pytest test suite
@@ -80,7 +86,8 @@ bash infrastructure/scripts/setup-env.sh
 ```
 
 This copies `.env.example` → `.env` at the root, and inside `frontend/` and
-`backend/`. Adjust values as needed.
+`backend/`. Adjust values as needed — including `AI_PROVIDER` and the
+matching provider credentials (see "AI provider configuration" below).
 
 ### 2. Run the backend
 
@@ -146,16 +153,38 @@ View logs for one service:
 docker compose logs -f backend
 ```
 
+## AI provider configuration
+
+The backend never calls an AI provider SDK directly outside
+`backend/app/services/ai/` — everything else depends on the `AIService`
+interface (`app/services/ai/base.py`) and resolves a concrete adapter through
+`get_ai_service()`. Switch providers with one env var, no code changes:
+
+| Variable                    | Used when                  |
+|------------------------------|-----------------------------|
+| `AI_PROVIDER`                 | `openai` (default) or `azure_openai` |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | `AI_PROVIDER=openai`     |
+| `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` | `AI_PROVIDER=azure_openai` |
+
+Adding a new provider (Anthropic, Gemini, ...) means adding one adapter class
+under `app/services/ai/providers/` and a branch in
+`app/services/ai/factory.py` — routers, services, and schemas that depend on
+`AIService` are untouched. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ai-provider-abstraction-dependency-inversion)
+for the full rationale.
+
 ## Coding standards
 
 **Python** (backend): `black` (formatting), `ruff` (linting), `isort` (import
-ordering). Config lives in `backend/pyproject.toml`.
+ordering), `mypy --strict` (type checking — all functions, classes, and
+schemas are expected to be fully typed). Config lives in `backend/pyproject.toml`.
 
 ```bash
 cd backend
 black app
 ruff check app --fix
 isort app
+mypy app
 pytest
 ```
 
@@ -173,6 +202,6 @@ npm run format
 `.github/workflows/ci.yml` runs on every push/PR to `main`:
 
 - **frontend**: `npm ci` → `npm run lint` → `npm run build`
-- **backend**: install deps → `ruff check` → `black --check` → `isort --check-only` → `pytest`
+- **backend**: install deps → `ruff check` → `black --check` → `isort --check-only` → `mypy` → `pytest`
 
 Deployment is intentionally not configured yet.
