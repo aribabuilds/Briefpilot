@@ -8,7 +8,11 @@
       "PowerShell(Get-Command py -ErrorAction SilentlyContinue)",
       "PowerShell(python --version 2>&1)",
       "Bash(npm install *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git commit -m ' *)",
+      "PowerShell(gh --version)",
+      "PowerShell(gh pr list --repo aribabuilds/Briefpilot --state all 2>&1)",
+      "PowerShell(gh repo view aribabuilds/Briefpilot --json defaultBranchRef 2>&1)"
     ]
   }
 }
