@@ -2,22 +2,23 @@ import logging
 import sys
 
 import structlog
+from structlog.typing import Processor
 
 from app.config.settings import Settings
 
 
 def configure_logging(settings: Settings) -> None:
-    shared_processors = [
+    # Annotated explicitly: the entries have differing callable signatures, so
+    # inference widens the list to list[object] and structlog's typed API rejects it.
+    shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
     ]
 
-    renderer = (
-        structlog.dev.ConsoleRenderer()
-        if settings.debug
-        else structlog.processors.JSONRenderer()
+    renderer: Processor = (
+        structlog.dev.ConsoleRenderer() if settings.debug else structlog.processors.JSONRenderer()
     )
 
     structlog.configure(

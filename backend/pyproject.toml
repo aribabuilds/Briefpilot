@@ -20,9 +20,9 @@ python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
 
-[[tool.mypy.overrides]]
-module = ["structlog.*"]
-ignore_missing_imports = true
+# No per-module overrides: structlog, fastapi, and pydantic all ship py.typed,
+# so their real types are checked. Add an override only for a genuinely
+# untyped dependency, and say which one and why.
 
 [tool.pytest.ini_options]
 testpaths = ["app/tests"]
