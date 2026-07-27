@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     database_url: str = "postgresql://briefpilot:briefpilot@localhost:5432/briefpilot"
 
+    # Upload guard. Basic bound for the walking skeleton; streaming abuse guards
+    # are M24. 10 MiB comfortably covers a multi-page phone photo or scanned PDF.
+    max_upload_bytes: int = 10 * 1024 * 1024
+
+    # Walking-skeleton stub: how long a job reports "processing" before its
+    # placeholder result is ready. Removed when the real pipeline lands.
+    stub_processing_delay_seconds: float = 1.5
+
     ai_provider: Literal["openai", "azure_openai"] = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"

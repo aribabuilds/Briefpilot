@@ -16,7 +16,7 @@ foundation → upload → OCR with bboxes → extraction → validators → high
 | M | Objective | Status | Summary |
 |---|-----------|--------|---------|
 | M1 | Repo + environments | **done** | Monorepo scaffold, lint/format/type/test toolchain, **CI verified green**, pre-commit hooks, `Makefile` (`make dev`), `docs/adr/` + ADR-0001, backend boots and serves |
-| M2 | Walking skeleton | todo | Upload endpoint (stub), job status polling, stub result render, landing copy v0 |
+| M2 | Walking skeleton | **done** | `POST /api/v1/jobs` (upload) + `GET /api/v1/jobs/{id}` (poll) behind repo/service seam; landing + upload form + result page with live polling and honest states. Async job+poll wired now so the multi-second pipeline slots in without a rewrite. In-memory store (Postgres deferred). Verified end-to-end in-browser; 17 backend tests |
 | M3 | Real upload + OCR bake-off | todo | Multi-file/PDF intake, page splitting, validation; OCR comparison → ADR-001 |
 | M4 | Preprocessing | todo | Deskew, contrast, downscale (OpenCV/Pillow); measured OCR-confidence lift |
 | M5 | OCR integration | todo | OCR client wrapper, normalized `{text, page, bbox, confidence}`, multi-page merge, retries |
