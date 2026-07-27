@@ -1,0 +1,93 @@
+# PROGRESS — BriefPilot M1–M30
+
+**Milestones, not dates.** "Day N" in the execution plan = **Milestone N (MN)**. There is no
+schedule pressure and no assumption about elapsed time. Source of truth for scope:
+`briefpilot-30day-execution-plan.md.pdf` (in `../Briefpilot-decisions/`), governed by `CLAUDE.md`.
+
+**Status legend:** `todo` · `in progress` · `done` · `blocked`
+
+**Rule:** never start a milestone whose dependency isn't done. Critical path is
+foundation → upload → OCR with bboxes → extraction → validators → highlight overlay → docs/demo.
+
+---
+
+## Sprint 1 (M1–M7) — "A letter goes in, real text comes out"
+
+| M | Objective | Status | Summary |
+|---|-----------|--------|---------|
+| M1 | Repo + environments | in progress | Monorepo scaffold, lint/format, CI, Docker Compose exist; branch renamed `master`→`main` so CI can fire at last. Remaining: hooks, `make dev`, `docs/adr/`, first real backend boot |
+| M2 | Walking skeleton | todo | Upload endpoint (stub), job status polling, stub result render, landing copy v0 |
+| M3 | Real upload + OCR bake-off | todo | Multi-file/PDF intake, page splitting, validation; OCR comparison → ADR-001 |
+| M4 | Preprocessing | todo | Deskew, contrast, downscale (OpenCV/Pillow); measured OCR-confidence lift |
+| M5 | OCR integration | todo | OCR client wrapper, normalized `{text, page, bbox, confidence}`, multi-page merge, retries |
+| M6 | Quality gate + fixtures | todo | Page-confidence threshold, "retake photo" UX, golden set → 10 letters |
+| M7 | Sprint-1 close | todo | Bug sweep, phone-camera test, retro, demo capture |
+
+## Sprint 2 (M8–M14) — "The pipeline understands the letter"
+
+| M | Objective | Status | Summary |
+|---|-----------|--------|---------|
+| M8 | Classification | todo | LLM classifier, few-shot per type, "other" fallback, eval vs labeled set |
+| M9 | Extraction schemas | todo | Pydantic schemas top-4 types + generic; `{value, confidence, source_span}` wrapper |
+| M10 | Extraction v1 | todo | End-to-end extraction, source-span linking, null-not-guess in prompt + parser |
+| M11 | Validator layer | todo | Date/deadline/legal-ref/amount rules; failures downgrade + flag, never fix |
+| M12 | Eval harness | todo | Scoring script, scorecard markdown, fast-subset CI job, baseline run |
+| M13 | Accuracy iteration | todo | Measured prompt iterations; per-type few-shots; scope decision point |
+| M14 | Sprint-2 close | todo | Confidence-tier logic, golden set → 20, retro |
+
+## Sprint 3 (M15–M21) — "A human can use and verify it"
+
+| M | Objective | Status | Summary |
+|---|-----------|--------|---------|
+| M15 | Explanation engine | todo | Grounded prompt, readability constraints, advice-phrase linter, disclaimer |
+| M16 | Checklist + glossary | todo | Action derivation with urgency flags; 50-term Amtsdeutsch glossary + popovers |
+| M17 | Results page | todo | Summary card, explanation, checklist, honest processing states, error/empty states |
+| M18 | Source-highlight overlay pt.1 | todo | Document viewer, coordinate normalization, bbox rendering at any scale |
+| M19 | Overlay pt.2 | todo | Click field → scroll + highlight, multi-page, low-confidence verify prompts |
+| M20 | Test hardening | todo | Playwright E2E happy path; OCR→extract→explain integration tests |
+| M21 | Sprint-3 close + usability | todo | 2 non-native testers on real phones, top-3 friction fixes, screenshots |
+
+## Sprint 4 (M22–M30) — "Ship, harden, and tell the story"
+
+| M | Objective | Status | Summary |
+|---|-----------|--------|---------|
+| M22 | Privacy features | todo | One-click delete verified at storage layer, 24h auto-purge, no accounts |
+| M23 | Privacy page + landing | todo | Plain-language privacy page matching actual behavior; final landing copy |
+| M24 | Production hardening | todo | Rate limiting, size guards, structured logging, uptime monitor, guardrails |
+| M25 | Final eval + failure analysis | todo | Full eval on 30 golden letters; honest failure analysis; freeze scorecard |
+| M26 | README + architecture | todo | Architecture diagram, portfolio README rewrite, ADR index |
+| M27 | Demo assets | todo | 3-minute demo video, screenshot set |
+| M28 | Clean-machine test + bug sweep | todo | Follow README on fresh environment, fix gaps, triage bugs |
+| M29 | Launch checklist | todo | Full launch checklist, monitor verification |
+| M30 | Publish + retrospective | todo | Launch post, `docs/retro.md`, post-MVP Sprint-5 candidates |
+
+---
+
+## Zero-cost adaptations (CLAUDE.md §3 overrides the execution plan)
+
+The execution plan assumes a funded project. `CLAUDE.md` §3 is a **hard rule** and wins where they conflict:
+
+- **M1** — plan says "EU-region deploy target (Hetzner/Fly EU or Vercel fra1) + Sentry EU."
+  Adapted: **no hosting is provisioned.** Demo strategy is local (`make dev` / Docker Compose)
+  + recorded video + a README a recruiter can follow on a clean machine. A free tier may be
+  *proposed* later, never silently provisioned.
+- **M3** — plan says bake off Azure Document Intelligence vs Google Vision vs Tesseract.
+  Adapted: **Tesseract is the default** for dev, CI, and demo. The bake-off compares Tesseract
+  configurations/preprocessing variants; the OCR adapter is designed so a paid provider is a
+  config swap later. ADR-001 records this.
+- **M8+** — LLM must run on a **free tier** (e.g. Gemini Flash) behind the model-agnostic wrapper.
+  No paid API calls. See "Known deviations" below.
+- **M29** — no paid domain/DNS/VPS. Launch = public repo + video + reproducible local run.
+
+## Known deviations & carried debt
+
+| Item | Impact | Where it gets resolved |
+|------|--------|------------------------|
+| ~~CI workflow triggers on `main`; repo branch is `master` — **CI has never run**~~ | Branch renamed to `main` and pushed (M1, D1 in LEARNING.md); `ci.yml` needed no edit. **First run now triggered — green status still to be confirmed** | M1 (in progress) |
+| `AIService` ships only **OpenAI + Azure OpenAI** adapters — both paid | Violates §3 zero-cost mandate if used; built ahead of its milestone | Default flipped off paid in M1; free-tier adapter lands in M8 where the LLM is actually needed |
+| Wrapper is named `AIService`; CLAUDE.md §4 calls it `llm_client` | Naming drift vs. the spec | M8 (rename or ADR justifying the name) |
+| No `pre-commit` hooks | Plan lists "lint/format hooks" in M1 | M1 |
+| No `docs/adr/` directory | CLAUDE.md §4 requires ADRs from day one | M1 |
+| No `LEARNING.md` | CLAUDE.md §6 requires milestone reviews | End of M1 |
+| Backend never executed locally (no Python 3.13; local install is 3.14) | `pytest`/`mypy` results unverified outside Docker | M1 (via Docker or CI) |
+| Existing commits don't follow conventional-commit format | §5.7 | Going forward only; history not rewritten |
