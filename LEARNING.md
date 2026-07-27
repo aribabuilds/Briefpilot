@@ -78,8 +78,83 @@ just check that it didn't complain.
   on stale/missing runs.)
 - *"What's the difference between a green build and a build you trust?"*
 
-### Review questions & teach-back
+#### D3 — Pre-commit hooks format and lint only; mypy, eslint and pytest stay in CI
 
-M1 is not closed yet — the remaining scope is pre-commit hooks, `make dev`, `docs/adr/`, and a
-first real backend boot. The three review questions and the teach-back prompt will be appended
-when M1 meets its Definition of Done.
+**What.** `.pre-commit-config.yaml` runs hygiene checks, ruff, black, isort and prettier.
+It deliberately does **not** run mypy, eslint or pytest.
+
+**Why.** A commit hook competes with the developer's attention every single commit. Hooks that
+take thirty seconds get bypassed with `git commit --no-verify`, and a bypassed hook protects
+nothing while still appearing in the repo as though it does — the same "looks protected, isn't"
+failure as D2. So the split is by *cost*, not by importance: sub-second mechanical fixes run
+locally; anything slow or requiring a full dependency graph runs in CI, where waiting is free
+because it happens without you.
+
+**What was rejected.** Putting mypy in pre-commit via `mirrors-mypy`. It needs
+`additional_dependencies` mirroring the whole runtime dependency list, which then silently
+drifts from `requirements.txt` — a second source of truth for dependencies, checking types
+against versions you don't actually run.
+
+**Two things this decision cost, discovered by running it.** Both are recorded because they are
+the kind of detail that only shows up on execution:
+
+1. The generic `end-of-file-fixer` hook rewrote 13 exported SVG brand assets. Vendored design
+   artifacts are not source; formatting them creates noise and can corrupt exports. Fixed with
+   a top-level `exclude: ^BriefPilot-Logo/`.
+2. Prettier could not resolve `prettier-plugin-tailwindcss` in an isolated hook environment,
+   because prettier v3 resolves plugins relative to the working directory. The hook would have
+   *passed* while silently skipping Tailwind class sorting — then fought `npm run format` over
+   the same files forever. Fixed by invoking the frontend's own `npm run format`, so there is
+   exactly one formatter with one config.
+
+**What a German tech interviewer might ask.**
+- *"Where do you draw the line between a pre-commit hook and a CI check?"*
+- *"Your hook and your npm script format the same files. How do you stop them disagreeing?"*
+  (One tool, one config, invoked the same way from both places.)
+
+#### D4 — CI ran `lint` and `build` but never `format:check`, so formatting drifted unchecked
+
+**What.** The frontend CI job ran ESLint and `next build`. Both pass happily on unformatted
+code. The first time `prettier --check` was ever executed, it reformatted three source files —
+including the landing page — meaning the frontend had *never* matched its own committed style
+config. `npm run format:check` is now a CI step.
+
+**Why it matters.** This is D2's lesson in a second costume, and that repetition is the point.
+A quality gate only enforces what it actually executes. `package.json` declared a `format:check`
+script; `.prettierrc.json` declared the rules; a reader would reasonably conclude formatting was
+enforced. Nothing ran it. **Configuration is not enforcement** — the check has to be wired into
+a pipeline that fails.
+
+**What a German tech interviewer might ask.**
+- *"How would you audit whether your CI actually enforces everything your repo claims to?"*
+  (Walk the declared scripts and configs and ask, for each, which pipeline step executes it —
+  then break something deliberately and confirm the pipeline goes red.)
+
+---
+
+### Review questions
+
+Answer these before M2 starts. Take them seriously — I will grade honestly.
+
+1. **Read the code.** Open `backend/app/services/ai/factory.py`. `get_ai_service()` is decorated
+   with `@lru_cache` while `build_ai_service(settings)` is not. Why is the split there, and what
+   would break in the tests if `build_ai_service` were the cached one?
+
+2. **Design.** Suppose we move `AIService` out of `services/ai/` and have each API router
+   instantiate `OpenAIService` directly where it needs one. Name three concrete things that get
+   harder — and be specific about which of them is worst when we add the Gemini adapter at M8.
+
+3. **Engineering practice.** CI now runs `black --check` rather than `black`. Why is
+   `--check` the right thing in CI, when the pre-commit hook runs the *rewriting* version of the
+   same tool? What would go wrong if CI auto-formatted and pushed the result?
+
+### Teach-back
+
+Explain in 60 seconds, to someone who is not an engineer:
+
+> **"Our tests were passing for two weeks. They had never run once."**
+
+Cover: how a pipeline can be absent rather than failing, why absence looks identical to success
+on a dashboard, and the one change that makes the difference visible. If you can land why
+*"no news is good news"* is a dangerous default in engineering, you have it — that is the
+transferable idea, and it is worth a LinkedIn post.

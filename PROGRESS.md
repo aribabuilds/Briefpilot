@@ -15,7 +15,7 @@ foundation → upload → OCR with bboxes → extraction → validators → high
 
 | M | Objective | Status | Summary |
 |---|-----------|--------|---------|
-| M1 | Repo + environments | in progress | Scaffold + Docker Compose exist; branch renamed `master`→`main`, **CI verified green** (first real run). Remaining: pre-commit hooks, `make dev`, `docs/adr/`, remote default branch flip |
+| M1 | Repo + environments | **done** | Monorepo scaffold, lint/format/type/test toolchain, **CI verified green**, pre-commit hooks, `Makefile` (`make dev`), `docs/adr/` + ADR-0001, backend boots and serves |
 | M2 | Walking skeleton | todo | Upload endpoint (stub), job status polling, stub result render, landing copy v0 |
 | M3 | Real upload + OCR bake-off | todo | Multi-file/PDF intake, page splitting, validation; OCR comparison → ADR-001 |
 | M4 | Preprocessing | todo | Deskew, contrast, downscale (OpenCV/Pillow); measured OCR-confidence lift |
@@ -86,8 +86,10 @@ The execution plan assumes a funded project. `CLAUDE.md` §3 is a **hard rule** 
 | ~~CI workflow triggers on `main`; repo branch is `master` — CI has never run~~ | **RESOLVED.** Branch renamed to `main` (D1); `ci.yml` needed no edit. First run failed (black + mypy in `core/logging.py`); fixed in `45a8b59`. **Run #3 green: Frontend 47s, Backend 31s** | M1 ✅ |
 | `AIService` ships only **OpenAI + Azure OpenAI** adapters — both paid | Violates §3 zero-cost mandate if used; built ahead of its milestone | Default flipped off paid in M1; free-tier adapter lands in M8 where the LLM is actually needed |
 | Wrapper is named `AIService`; CLAUDE.md §4 calls it `llm_client` | Naming drift vs. the spec | M8 (rename or ADR justifying the name) |
-| No `pre-commit` hooks | Plan lists "lint/format hooks" in M1 | M1 |
-| No `docs/adr/` directory | CLAUDE.md §4 requires ADRs from day one | M1 |
-| No `LEARNING.md` | CLAUDE.md §6 requires milestone reviews | End of M1 |
+| ~~No `pre-commit` hooks~~ | **RESOLVED.** `.pre-commit-config.yaml`, all hooks verified passing on the full tree | M1 ✅ |
+| ~~No `docs/adr/` directory~~ | **RESOLVED.** `docs/adr/` + index + ADR-0001 (local-first zero-cost strategy) | M1 ✅ |
+| ~~No `LEARNING.md`~~ | **RESOLVED.** M1 review with 4 decisions, 3 review questions, teach-back | M1 ✅ |
+| ~~Frontend source never prettier-formatted~~ | **RESOLVED.** CI ran `lint` + `build`, which both pass on unformatted code; `format:check` added to CI and 3 files reformatted | M1 ✅ |
+| `make` not installed on the owner's Windows machine | `make dev` won't run locally until `choco install make`; Makefile targets are thin wrappers, documented in README | Owner's call |
 | ~~Backend never executed locally~~ | **RESOLVED.** Full backend job now runs locally (Python 3.14 venv) and in CI: ruff, black, isort, mypy strict all clean; **9 tests pass**, incl. the `AIService` factory tests. Note local 3.14 vs project target 3.13 — Docker/CI remain the source of truth | M1 ✅ |
 | Existing commits don't follow conventional-commit format | §5.7 | Going forward only; history not rewritten |

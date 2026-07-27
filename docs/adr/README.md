@@ -1,0 +1,35 @@
+# Architecture Decision Records
+
+An ADR captures a decision that is **expensive to reverse** — one where a future
+reader would otherwise ask "why on earth is it like this?" and get no answer.
+
+Routine choices (a library version, a file name) do not get an ADR. Things that
+constrain later milestones do.
+
+## Index
+
+| # | Title | Status | Milestone |
+|---|-------|--------|-----------|
+| [0001](0001-local-first-zero-cost-demo-strategy.md) | Local-first, zero-cost demo strategy (no hosted deployment) | Accepted | M1 |
+
+## Planned
+
+The execution plan names four decisions that must not silently change later; each
+gets an ADR when it is actually made, not before:
+
+- **OCR provider + normalized coordinate schema** (M3) — the overlay math and every
+  eval fixture depend on it.
+- **Per-type Pydantic schemas with `{value, confidence, source_span}`** (M9) — the
+  contract between pipeline and frontend.
+- **No-account / session model** (M22) — retrofitting privacy architecture is a rewrite.
+- **Eval harness format** (M12) — golden fixtures are an investment; churning their
+  schema burns it.
+
+## Format
+
+Each record uses the same headings: **Context**, **Decision**, **Alternatives
+considered**, **Consequences**, **Revisit when**. Write it in plain language, on the
+day the decision is made — a reconstructed ADR reads like a reconstructed ADR.
+
+Status is one of `Proposed`, `Accepted`, `Superseded by ADR-NNNN`. Records are
+immutable once accepted: to change a decision, write a new ADR that supersedes it.

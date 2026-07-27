@@ -69,6 +69,22 @@ briefpilot/
 
 ## Local development
 
+### Quick start
+
+```bash
+make env      # create .env files from the templates
+make install  # backend + frontend deps, and register git hooks
+make dev      # run the whole stack via Docker Compose
+```
+
+Then open `http://localhost:3000` (frontend) and `http://localhost:8000/health` (backend).
+`make help` lists every target. On Windows, `make` is not installed by default —
+either `choco install make`, or run the underlying commands shown in the
+[Makefile](Makefile); every target is a thin wrapper with nothing hidden.
+
+There is intentionally **no hosted deployment** — see
+[ADR-0001](docs/adr/0001-local-first-zero-cost-demo-strategy.md).
+
 ### Prerequisites
 
 - Node.js 22+
@@ -197,11 +213,34 @@ npm run lint
 npm run format
 ```
 
+**Git hooks.** `make install` registers [pre-commit](.pre-commit-config.yaml), which
+runs formatters and linters on staged files. The hooks deliberately cover formatting
+and linting only — mypy, eslint and pytest stay in CI and `make ci`, because a commit
+hook slow enough to be annoying gets bypassed with `--no-verify`, and a bypassed hook
+protects nothing.
+
+Run the entire CI suite locally before pushing:
+
+```bash
+make ci
+```
+
 ## CI/CD
 
 `.github/workflows/ci.yml` runs on every push/PR to `main`:
 
-- **frontend**: `npm ci` → `npm run lint` → `npm run build`
+- **frontend**: `npm ci` → `npm run lint` → `npm run format:check` → `npm run build`
 - **backend**: install deps → `ruff check` → `black --check` → `isort --check-only` → `mypy` → `pytest`
 
-Deployment is intentionally not configured yet.
+Deployment is intentionally not configured — that is a decision, not an omission.
+See [ADR-0001](docs/adr/0001-local-first-zero-cost-demo-strategy.md).
+
+## Project documentation
+
+| File | Purpose |
+|------|---------|
+| [PROGRESS.md](PROGRESS.md) | Milestone tracker (M1–M30) and known deviations |
+| [BACKLOG.md](BACKLOG.md) | Scope-freeze register: what's out, and why |
+| [LEARNING.md](LEARNING.md) | Decisions log and milestone reviews |
+| [docs/adr/](docs/adr/) | Architecture Decision Records |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System structure and layering |
