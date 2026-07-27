@@ -1,0 +1,70 @@
+# Pre-commit hooks — the fast, local half of the quality gate.
+#
+# Scope decision: these hooks only FORMAT and LINT. Type-checking (mypy),
+# tests (pytest) and eslint deliberately stay in CI and in `make lint` / `make test`.
+# A commit hook that takes 30s gets bypassed with `--no-verify` within a week,
+# and a bypassed hook protects nothing. Fast hooks that always run beat thorough
+# hooks that get disabled.
+#
+# Setup:  make install   (or: pre-commit install)
+# Run manually on everything:  make hooks   (or: pre-commit run --all-files)
+
+default_language_version:
+  python: python3
+
+# Vendored brand assets are build artifacts from a design tool, not source.
+# Reformatting them creates noisy diffs and risks corrupting exported SVGs.
+exclude: ^BriefPilot-Logo/
+
+repos:
+  # --- generic hygiene -------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key
+      # Golden-letter fixtures arrive in M6. Scans are easy to commit by accident
+      # at full camera resolution; this keeps the clone recruiter-friendly.
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
+  # --- backend (Python) ------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        files: ^backend/
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        files: ^backend/
+
+  # --- frontend (TypeScript) -------------------------------------------
+  # Invokes the frontend's own `npm run format`, exactly as a developer would.
+  # Rejected alternatives: a mirrored prettier in an isolated pre-commit env, and
+  # calling prettier's binary directly from the repo root — both resolve plugins
+  # relative to CWD, so prettier-plugin-tailwindcss is not found and class sorting
+  # is silently skipped, leaving the hook fighting `npm run format` over the same
+  # files. pass_filenames is off because the script formats the workspace itself.
+  # Requires `npm install` in frontend/; `make install` does that.
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier (frontend)
+        entry: npm --prefix frontend run format
+        language: system
+        pass_filenames: false
+        files: ^frontend/

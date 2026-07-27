@@ -6,9 +6,7 @@ export const metadata: Metadata = {
   description: "AI Case Manager for German Bureaucracy",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body>{children}</body>

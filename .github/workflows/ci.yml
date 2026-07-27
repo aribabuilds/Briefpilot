@@ -24,6 +24,9 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      # Formatting was drifting unnoticed: lint and build both pass on
+      # unformatted code, so nothing enforced prettier until this step existed.
+      - run: npm run format:check
       - run: npm run build
 
   backend:
