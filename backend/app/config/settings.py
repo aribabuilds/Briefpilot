@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # Page-count guard against a pathological upload; also bounds OCR cost.
     max_document_pages: int = 20
 
+    # Preprocessing (M4). Deskew only corrects within +/- this angle; beyond it
+    # the estimate is treated as unreliable and skipped. Downscale bounds the
+    # longest side to cap OCR cost on large phone photos.
+    preprocess_enabled: bool = True
+    deskew_max_angle: float = 15.0
+    preprocess_max_dimension: int = 3000
+
     ai_provider: Literal["openai", "azure_openai"] = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"

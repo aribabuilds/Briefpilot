@@ -26,7 +26,7 @@ plugins = ["pydantic.mypy"]
 # are isolated behind our own typed wrappers (services/ingestion.py,
 # services/ocr/), so the untyped surface does not leak into the rest of the app.
 [[tool.mypy.overrides]]
-module = ["pypdfium2.*", "pytesseract.*"]
+module = ["pypdfium2.*", "pytesseract.*", "cv2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
