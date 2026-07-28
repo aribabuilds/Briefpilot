@@ -1,76 +1,118 @@
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from functools import lru_cache
+from typing import Protocol
 from uuid import uuid4
+
+import structlog
 
 from app.config.settings import get_settings
 from app.repositories.job_repository import InMemoryJobRepository, JobRepository
 from app.schemas.job import Job, JobResult, JobStatus
+from app.schemas.ocr import OcrDocument
+from app.services.document_pipeline import build_document
+from app.services.ocr import TesseractOcrService
+
+logger = structlog.get_logger(__name__)
+
+# The pipeline reduced to what the job layer needs: bytes + content type -> document.
+DocumentRunner = Callable[[bytes, str], OcrDocument]
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
+class Executor(Protocol):
+    """Minimal submit surface. Satisfied by ThreadPoolExecutor in production and
+    by a synchronous stand-in in tests, which makes job completion deterministic."""
+
+    def submit(self, fn: Callable[..., object], /, *args: object) -> object: ...
 
 
 class JobService:
-    """Owns the job lifecycle: create on upload, complete when the work is done.
+    """Owns the job lifecycle. Upload creates a PROCESSING job and hands the real
+    work to an executor off the request path; the worker updates the job to DONE
+    (with the extracted document) or FAILED (with an error) when it finishes.
 
-    For the walking skeleton there is no work, so "done" is driven by elapsed
-    time rather than a real pipeline. Completion is evaluated lazily on read —
-    no threads, no background tasks, no wall-clock coupling in tests (the clock
-    is injectable). When the real pipeline lands, the elapsed-time check is
-    replaced by "is the pipeline finished"; the poll-until-done contract the
-    frontend depends on does not change.
+    This replaces M2's lazily-evaluated stub completion: real OCR must run exactly
+    once, in the background, not be recomputed on every poll.
     """
 
     def __init__(
-        self,
-        repository: JobRepository,
-        processing_delay_seconds: float,
-        clock: Callable[[], datetime] = _utc_now,
+        self, repository: JobRepository, runner: DocumentRunner, executor: Executor
     ) -> None:
         self._repository = repository
-        self._delay = timedelta(seconds=processing_delay_seconds)
-        self._clock = clock
+        self._runner = runner
+        self._executor = executor
 
-    def create_job(self, filename: str) -> Job:
+    def create_job(self, *, filename: str, content: bytes, content_type: str) -> Job:
         job = Job(
             id=uuid4().hex,
             status=JobStatus.PROCESSING,
             filename=filename,
-            created_at=self._clock(),
-            result=None,
+            created_at=datetime.now(UTC),
         )
         self._repository.add(job)
+        self._executor.submit(self._process, job.id, filename, content, content_type)
         return job
 
     def get_job(self, job_id: str) -> Job | None:
-        job = self._repository.get(job_id)
-        if job is None:
-            return None
-        if job.status is JobStatus.PROCESSING and self._clock() - job.created_at >= self._delay:
-            job = job.model_copy(
-                update={"status": JobStatus.DONE, "result": self._build_stub_result(job)}
-            )
-            self._repository.update(job)
-        return job
+        return self._repository.get(job_id)
 
-    def _build_stub_result(self, job: Job) -> JobResult:
-        return JobResult(
-            message=(
-                "Your document was received and a placeholder result was produced. "
-                "Real extraction, explanation, and source highlighting arrive in later milestones."
-            ),
-            filename=job.filename,
+    def _process(self, job_id: str, filename: str, content: bytes, content_type: str) -> None:
+        try:
+            document = self._runner(content, content_type)
+        except Exception as exc:  # noqa: BLE001 - the worker must never crash silently
+            logger.exception("job_processing_failed", job_id=job_id)
+            self._update(job_id, status=JobStatus.FAILED, error=str(exc))
+            return
+        self._update(job_id, status=JobStatus.DONE, result=_summarize(filename, document))
+
+    def _update(
+        self,
+        job_id: str,
+        *,
+        status: JobStatus,
+        result: JobResult | None = None,
+        error: str | None = None,
+    ) -> None:
+        job = self._repository.get(job_id)
+        if job is None:  # pragma: no cover - defensive; the job was just created
+            return
+        self._repository.update(
+            job.model_copy(update={"status": status, "result": result, "error": error})
         )
+
+
+def _summarize(filename: str, document: OcrDocument) -> JobResult:
+    words = document.words
+    mean_confidence = sum(word.confidence for word in words) / len(words) if words else 0.0
+    return JobResult(
+        filename=filename,
+        page_count=len(document.pages),
+        word_count=len(words),
+        mean_confidence=mean_confidence,
+        text=document.text,
+    )
 
 
 @lru_cache
 def get_job_service() -> JobService:
-    # Cached so the in-memory repository is a process-wide singleton; a fresh
-    # service per request would drop every job the instant it was created.
     settings = get_settings()
-    return JobService(
-        repository=InMemoryJobRepository(),
-        processing_delay_seconds=settings.stub_processing_delay_seconds,
+    ocr = TesseractOcrService(language=settings.ocr_language, timeout=settings.ocr_timeout_seconds)
+
+    def runner(content: bytes, content_type: str) -> OcrDocument:
+        return build_document(
+            content,
+            content_type,
+            ocr=ocr,
+            max_pages=settings.max_document_pages,
+            render_scale=settings.ocr_render_scale,
+            preprocess_enabled=settings.preprocess_enabled,
+            deskew_max_angle=settings.deskew_max_angle,
+            max_dimension=settings.preprocess_max_dimension,
+        )
+
+    executor = ThreadPoolExecutor(
+        max_workers=settings.ocr_worker_threads,
+        thread_name_prefix="ocr",
     )
+    return JobService(InMemoryJobRepository(), runner, executor)

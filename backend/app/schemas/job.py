@@ -7,15 +7,18 @@ from pydantic import BaseModel
 class JobStatus(StrEnum):
     PROCESSING = "processing"
     DONE = "done"
+    FAILED = "failed"
 
 
 class JobResult(BaseModel):
-    # Stub result for the walking skeleton (M2). This is intentionally trivial:
-    # its only job is to prove the upload -> poll -> render wire end to end.
-    # It is replaced at M9 by the real extraction contract — per-type Pydantic
-    # schemas where every field carries {value, confidence, source_span}.
-    message: str
+    # The real OCR outcome (M5). Full word-level geometry lives in the server-side
+    # OcrDocument and surfaces to the client when the overlay needs it (M18); for
+    # now the result carries the extracted text and a summary the user can see.
     filename: str
+    page_count: int
+    word_count: int
+    mean_confidence: float
+    text: str
 
 
 class Job(BaseModel):
@@ -24,6 +27,7 @@ class Job(BaseModel):
     filename: str
     created_at: datetime
     result: JobResult | None = None
+    error: str | None = None  # set when status is FAILED
 
 
 class JobCreatedResponse(BaseModel):

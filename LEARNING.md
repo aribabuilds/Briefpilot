@@ -330,3 +330,66 @@ regime where you trust it; make doing nothing the fallback.
 > **"We tried the obvious computer-vision function first, and it was confidently wrong."**
 Explain how a plausible library call (minAreaRect) gave garbage angles, how a ground-truth
 prototype caught it in minutes, and why that check came *before* writing the real module.
+
+---
+
+## M5 — OCR integration (stub becomes real) *(done)*
+
+### Decisions log
+
+#### D11 — Real work runs once in the background, not lazily on every poll
+
+**What.** M2's stub "completed" a job by computing elapsed time on each read (D6). Real OCR
+can't work that way — it must run exactly once, off the request path. `create_job` now submits
+the pipeline to a thread pool; the worker updates the job to DONE (with the document) or FAILED
+(with an error) when it finishes. The clock-driven stub transition is gone.
+
+**Why.** OCR takes seconds and has side effects (CPU, an external binary) — recomputing it per
+poll would be absurd and non-idempotent. Moving it off the request path is also what keeps the
+async job contract (D5) honest: the HTTP request returns immediately, the work happens
+elsewhere. The executor is injected behind a one-method `Executor` protocol, so tests pass a
+synchronous stand-in and job completion stays deterministic — no `sleep`, no thread races in the
+test suite.
+
+**Interview angle.** *"Where does the OCR actually run, and what happens to the request while it
+runs?"* Background worker; request returns a job id immediately; client polls. Follow-up: this
+in-process thread pool is fine for demo scale but doesn't survive a restart or scale across
+replicas — a durable queue (the BACKLOG item) is the production answer.
+
+#### D12 — Resilience must tell a bad page from a broken engine (caught by running it)
+
+**What.** The per-page retry-then-empty logic was meant so one unreadable page doesn't sink a
+ten-page letter. But it caught *every* exception — so with Tesseract entirely absent, all pages
+"failed" into empty results and the job reported **DONE with zero words**. Uploading a valid PDF
+locally surfaced it immediately: a totally broken OCR engine looked like success.
+
+**Why it matters.** This is D2's silent-failure lesson biting my *own* resilience code. The fix
+distinguishes scope: a page that raises is a failure; a page that returns zero words *without*
+raising is legitimately blank. If **every** page fails, that's systemic (dead engine, missing
+language pack), and the pipeline raises `DocumentOcrError` so the job fails visibly — while
+partial failure still degrades gracefully. The tell: resilience that can't fail is not
+resilience, it's a mute button.
+
+**What a German interviewer might ask.**
+- *"Your pipeline is resilient to a bad page. How do you avoid that resilience hiding a total
+  outage?"* (Distinguish partial from total failure; a floor below which you stop coping and
+  start alerting.)
+- *"How did you find this?"* (Ran it end-to-end on a real input, not just green unit tests — the
+  unit tests were happily green because they injected a *working* fake OCR.)
+
+### Review questions
+
+1. **Read the code.** `_extract_with_retry` returns `tuple[OcrPage, bool]` instead of just an
+   `OcrPage`. Why is that boolean load-bearing — what could the caller *not* decide without it?
+2. **Design.** The `Executor` is a one-method `Protocol`, and tests inject a synchronous version.
+   What specifically would become flaky or slow if tests used the real `ThreadPoolExecutor`
+   instead?
+3. **Practice.** The in-memory repo got a `threading.Lock` in this milestone but not before.
+   What exactly changed in M5 that made the lock necessary, and what's the failure it prevents?
+
+### Teach-back
+
+> **"Our error-handling was so forgiving it hid a total outage."**
+Explain how catch-everything resilience turned a completely missing OCR engine into a
+zero-word "success", and the one distinction (a page that *failed* vs a page that was *blank*)
+that fixed it.

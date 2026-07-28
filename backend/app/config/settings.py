@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     ocr_render_scale: float = 3.0
     # Page-count guard against a pathological upload; also bounds OCR cost.
     max_document_pages: int = 20
+    # Per-page OCR timeout (seconds; 0 = none) and the size of the background
+    # worker pool that runs the document pipeline off the request path (M5).
+    ocr_timeout_seconds: float = 30.0
+    ocr_worker_threads: int = 2
 
     # Preprocessing (M4). Deskew only corrects within +/- this angle; beyond it
     # the estimate is treated as unreliable and skipped. Downscale bounds the

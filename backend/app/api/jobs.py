@@ -28,7 +28,8 @@ async def create_job(
     service: ServiceDep,
     settings: SettingsDep,
 ) -> JobCreatedResponse:
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
+    content_type = file.content_type
+    if content_type is None or content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Unsupported file type. Upload a PDF, JPEG, or PNG.",
@@ -48,7 +49,11 @@ async def create_job(
             detail=f"File exceeds the {settings.max_upload_bytes} byte limit.",
         )
 
-    job = service.create_job(filename=file.filename or "upload")
+    job = service.create_job(
+        filename=file.filename or "upload",
+        content=contents,
+        content_type=content_type,
+    )
     return JobCreatedResponse(id=job.id, status=job.status)
 
 

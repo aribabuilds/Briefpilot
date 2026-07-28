@@ -11,14 +11,19 @@ DEFAULT_LANGUAGE = "deu+eng"
 
 
 class TesseractOcrService(OcrService):
-    def __init__(self, language: str = DEFAULT_LANGUAGE) -> None:
+    def __init__(self, language: str = DEFAULT_LANGUAGE, timeout: float = 0.0) -> None:
         self._language = language
+        # Seconds before a single-page OCR call is abandoned; 0 disables the
+        # timeout (pytesseract's convention). Guards against a pathological page
+        # hanging a worker thread.
+        self._timeout = timeout
 
     def extract_page(self, image: Image, page: int) -> OcrPage:
         data = pytesseract.image_to_data(
             image,
             lang=self._language,
             output_type=pytesseract.Output.DICT,
+            timeout=self._timeout,
         )
         words = _normalize(data, image_width=image.width, image_height=image.height, page=page)
         return OcrPage(page=page, width=image.width, height=image.height, words=words)

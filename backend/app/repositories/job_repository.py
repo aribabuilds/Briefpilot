@@ -1,3 +1,4 @@
+import threading
 from abc import ABC, abstractmethod
 
 from app.schemas.job import Job
@@ -26,12 +27,18 @@ class JobRepository(ABC):
 class InMemoryJobRepository(JobRepository):
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
+        # A background worker writes the completed job while request threads read
+        # it, so guard the dict. (A real datastore makes this the DB's problem.)
+        self._lock = threading.Lock()
 
     def add(self, job: Job) -> None:
-        self._jobs[job.id] = job
+        with self._lock:
+            self._jobs[job.id] = job
 
     def get(self, job_id: str) -> Job | None:
-        return self._jobs.get(job_id)
+        with self._lock:
+            return self._jobs.get(job_id)
 
     def update(self, job: Job) -> None:
-        self._jobs[job.id] = job
+        with self._lock:
+            self._jobs[job.id] = job

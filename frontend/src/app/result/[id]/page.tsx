@@ -13,6 +13,7 @@ type ViewState =
   | { kind: "loading" }
   | { kind: "processing"; job: Job }
   | { kind: "done"; job: Job }
+  | { kind: "failed"; job: Job }
   | { kind: "error"; message: string };
 
 export default function ResultPage() {
@@ -31,7 +32,11 @@ export default function ResultPage() {
 
         if (job.status === "done") {
           setState({ kind: "done", job });
-          return; // stop polling
+          return; // terminal
+        }
+        if (job.status === "failed") {
+          setState({ kind: "failed", job });
+          return; // terminal
         }
         setState({ kind: "processing", job });
         timer = setTimeout(poll, POLL_INTERVAL_MS);
@@ -53,7 +58,7 @@ export default function ResultPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-white px-6 py-16 dark:bg-neutral-950">
-      <div className="w-full max-w-md">{renderState(state)}</div>
+      <div className="w-full max-w-2xl">{renderState(state)}</div>
       <Link
         href="/"
         className="text-sm text-neutral-500 underline-offset-4 hover:underline dark:text-neutral-400"
@@ -75,22 +80,45 @@ function renderState(state: ViewState) {
             aria-hidden
           />
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Analyzing your letter…
+            Reading your letter…
           </p>
           <p className="text-xs text-neutral-500 dark:text-neutral-500">
             This usually takes a few seconds.
           </p>
         </div>
       );
-    case "done":
+    case "done": {
+      const { result } = state.job;
       return (
-        <div className="flex flex-col gap-4 rounded-xl border border-neutral-200 p-6 dark:border-neutral-800">
-          <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">Result</h1>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            {state.job.result?.message}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
+              Extracted text
+            </h1>
+            <p className="text-xs text-neutral-500 dark:text-neutral-500">
+              {result?.filename} · {result?.page_count} page
+              {result?.page_count === 1 ? "" : "s"} · {result?.word_count} words · avg confidence{" "}
+              {result ? Math.round(result.mean_confidence * 100) : 0}%
+            </p>
+          </div>
+          <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
+            {result?.text || "(no text found)"}
+          </pre>
+          <p className="text-xs text-neutral-400 dark:text-neutral-600">
+            This is the raw OCR text. Structured extraction and a plain-English explanation come
+            next.
+          </p>
+        </div>
+      );
+    }
+    case "failed":
+      return (
+        <div role="alert" className="flex flex-col gap-2 text-center">
+          <p className="text-sm font-medium text-red-600 dark:text-red-400">
+            We couldn&apos;t read this document.
           </p>
           <p className="text-xs text-neutral-500 dark:text-neutral-500">
-            File: {state.job.result?.filename}
+            {state.job.error ?? "Processing failed. Please try a different file."}
           </p>
         </div>
       );
