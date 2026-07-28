@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     # placeholder result is ready. Removed when the real pipeline lands.
     stub_processing_delay_seconds: float = 1.5
 
+    # Document ingestion / OCR (M3).
+    ocr_language: str = "deu+eng"
+    # PDF render scale over the 72-DPI base; 3.0 ~ 216 DPI, a balance of OCR
+    # accuracy against render time and image size.
+    ocr_render_scale: float = 3.0
+    # Page-count guard against a pathological upload; also bounds OCR cost.
+    max_document_pages: int = 20
+
     ai_provider: Literal["openai", "azure_openai"] = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"

@@ -17,7 +17,7 @@ foundation → upload → OCR with bboxes → extraction → validators → high
 |---|-----------|--------|---------|
 | M1 | Repo + environments | **done** | Monorepo scaffold, lint/format/type/test toolchain, **CI verified green**, pre-commit hooks, `Makefile` (`make dev`), `docs/adr/` + ADR-0001, backend boots and serves |
 | M2 | Walking skeleton | **done** | `POST /api/v1/jobs` (upload) + `GET /api/v1/jobs/{id}` (poll) behind repo/service seam; landing + upload form + result page with live polling and honest states. Async job+poll wired now so the multi-second pipeline slots in without a rewrite. In-memory store (Postgres deferred). Verified end-to-end in-browser; 17 backend tests |
-| M3 | Real upload + OCR bake-off | todo | Multi-file/PDF intake, page splitting, validation; OCR comparison → ADR-001 |
+| M3 | Real upload + OCR bake-off | **done** | Ingestion (pypdfium2 rasterize, page-limit/corrupt guards) + `OcrService` ABC + `TesseractOcrService` producing the **frozen** normalized schema (`schemas/ocr.py`); ADR-0002. Bake-off resolved to Tesseract by §3 (see below). Normalization unit-tested locally; real Tesseract test runs in CI. Pipeline wiring deferred to M5 |
 | M4 | Preprocessing | todo | Deskew, contrast, downscale (OpenCV/Pillow); measured OCR-confidence lift |
 | M5 | OCR integration | todo | OCR client wrapper, normalized `{text, page, bbox, confidence}`, multi-page merge, retries |
 | M6 | Quality gate + fixtures | todo | Page-confidence threshold, "retake photo" UX, golden set → 10 letters |
@@ -72,9 +72,10 @@ The execution plan assumes a funded project. `CLAUDE.md` §3 is a **hard rule** 
   + recorded video + a README a recruiter can follow on a clean machine. A free tier may be
   *proposed* later, never silently provisioned.
 - **M3** — plan says bake off Azure Document Intelligence vs Google Vision vs Tesseract.
-  Adapted: **Tesseract is the default** for dev, CI, and demo. The bake-off compares Tesseract
-  configurations/preprocessing variants; the OCR adapter is designed so a paid provider is a
-  config swap later. ADR-001 records this.
+  Adapted: **Tesseract is the default** for dev, CI, and demo; the paid providers were not
+  provisioned or benchmarked (doing so would itself violate §3). The `OcrService` adapter is
+  designed so a paid provider is a config/adapter swap later. **ADR-0002** records the decision
+  and freezes the coordinate schema.
 - **M8+** — LLM must run on a **free tier** (e.g. Gemini Flash) behind the model-agnostic wrapper.
   No paid API calls. See "Known deviations" below.
 - **M29** — no paid domain/DNS/VPS. Launch = public repo + video + reproducible local run.

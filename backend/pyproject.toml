@@ -20,9 +20,14 @@ python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
 
-# No per-module overrides: structlog, fastapi, and pydantic all ship py.typed,
-# so their real types are checked. Add an override only for a genuinely
-# untyped dependency, and say which one and why.
+# structlog, fastapi, and pydantic all ship py.typed, so their real types are
+# checked — no override. The two below are genuinely untyped (no stubs, no
+# py.typed): pypdfium2 (PDF rasterization) and pytesseract (OCR binding). Both
+# are isolated behind our own typed wrappers (services/ingestion.py,
+# services/ocr/), so the untyped surface does not leak into the rest of the app.
+[[tool.mypy.overrides]]
+module = ["pypdfium2.*", "pytesseract.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["app/tests"]

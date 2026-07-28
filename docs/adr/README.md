@@ -11,14 +11,13 @@ constrain later milestones do.
 | # | Title | Status | Milestone |
 |---|-------|--------|-----------|
 | [0001](0001-local-first-zero-cost-demo-strategy.md) | Local-first, zero-cost demo strategy (no hosted deployment) | Accepted | M1 |
+| [0002](0002-ocr-and-coordinate-schema.md) | OCR engine (Tesseract) and the normalized coordinate schema | Accepted | M3 |
 
 ## Planned
 
 The execution plan names four decisions that must not silently change later; each
 gets an ADR when it is actually made, not before:
 
-- **OCR provider + normalized coordinate schema** (M3) — the overlay math and every
-  eval fixture depend on it.
 - **Per-type Pydantic schemas with `{value, confidence, source_span}`** (M9) — the
   contract between pipeline and frontend.
 - **No-account / session model** (M22) — retrofitting privacy architecture is a rewrite.

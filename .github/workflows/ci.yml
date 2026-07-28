@@ -42,6 +42,10 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Tesseract + German pack so the real OCR integration test runs here (it
+      # is skipped locally where the binary is absent). This is what makes CI —
+      # not a developer laptop — the source of truth for OCR behavior.
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-deu
       - run: pip install -r requirements-dev.txt
       - run: ruff check app
       - run: black --check app
