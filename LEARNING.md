@@ -158,3 +158,120 @@ Cover: how a pipeline can be absent rather than failing, why absence looks ident
 on a dashboard, and the one change that makes the difference visible. If you can land why
 *"no news is good news"* is a dangerous default in engineering, you have it — that is the
 transferable idea, and it is worth a LinkedIn post.
+
+---
+
+## M2 — Walking skeleton *(done)*
+
+### Decisions log
+
+#### D5 — Async job + polling, not a synchronous upload-returns-result stub
+
+**What.** `POST /jobs` returns a job id immediately; the client polls `GET /jobs/{id}` until
+the status flips to `done`. Even though the M2 stub has nothing to compute, the contract is
+asynchronous from day one.
+
+**Why.** The eventual pipeline — OCR, classify, extract, validate, explain — is inherently
+multi-second and cannot answer within one HTTP request without holding a connection open and
+timing out behind proxies. Choosing the async contract now, while it is a stub, means M3–M5
+slot real work into an existing shape. The alternative (synchronous now, async later) is the
+more expensive path: it rewrites the API contract *and* the frontend's data flow *and* the
+tests, after other code already depends on the synchronous version. The general principle:
+**pay for the load-bearing shape of an interface early, when nothing depends on it yet.**
+
+**What was rejected.** Synchronous `POST /jobs` returning the result inline. Less code in M2,
+but a guaranteed rewrite the moment OCR (seconds) lands.
+
+**Interview angle.** *"When would you choose an async job API over a synchronous endpoint?"*
+The trigger is work that exceeds a request budget (roughly >1–2s, or unbounded) — OCR + LLM is
+firmly there. Follow-up they may push on: polling vs webhooks vs SSE/WebSockets. Polling is the
+right MVP call — trivial to build, no connection state, fine at demo scale; the cost is latency
+granularity and wasted requests, which a job queue + push would fix at real scale.
+
+#### D6 — Completion is a lazily-evaluated, clock-injectable state transition
+
+**What.** The stub job has no background worker. `get_job` computes whether enough time has
+elapsed and transitions `processing → done` on read, using an injected `clock` callable.
+
+**Why.** It keeps the stub honest (the job really does report "processing" then "done") with no
+threads or `asyncio` timers, and — because the clock is injected — the state machine is
+unit-tested deterministically with a fake clock, no `sleep`, no flake. When the real pipeline
+lands, the elapsed-time check becomes "is the pipeline finished"; the poll-until-done contract
+is unchanged.
+
+**Interview angle.** *"How do you test time-dependent logic without making the test slow or
+flaky?"* Inject the clock (dependency injection for `now()`); never call the wall clock directly
+in logic you want to test.
+
+### Review questions
+
+1. **Read the code.** In `services/job_service.py`, `get_job` writes the completed job back to
+   the repository (`update`) when it transitions. Why persist it, rather than just returning the
+   computed `done` state each read? What breaks in M5 (real pipeline) if we *don't* persist?
+2. **Design.** The in-memory repo is a process-wide singleton via `@lru_cache`. Name what breaks
+   the moment we run two backend replicas — and why the `JobRepository` interface means the fix
+   is small.
+3. **Practice.** The router validates content-type and size and returns 415/413 before creating
+   a job. Why enforce those at the API boundary rather than inside `JobService`?
+
+### Teach-back
+
+> **"We built the slow, async version of the API before we had anything slow to run."**
+Explain why paying for the async job+poll shape up front was cheaper than the synchronous
+shortcut — in terms of what depends on an interface once it exists.
+
+---
+
+## M3 — Real ingestion + OCR adapter *(done)*
+
+### Decisions log
+
+#### D7 — Bounding boxes stored as page fractions [0, 1], not pixels (frozen: ADR-0002)
+
+**What.** The normalized OCR schema stores every box as a fraction of the page, not pixel
+coordinates. Confidence likewise normalized to [0, 1] from Tesseract's 0–100.
+
+**Why.** This is a "must not change" contract — the overlay and all eval fixtures build on it —
+so resolution-independence matters more than convenience. Pixels couple every stored box to the
+raster DPI: the moment M4 preprocessing downscales a page, or the frontend renders at a
+different size, pixel boxes are wrong. Fractions survive any rescale — the overlay just
+multiplies by whatever size it draws at. Deciding this *before* fixtures exist is the whole
+point; changing it after M12 would invalidate the golden set.
+
+**Interview angle.** *"Why normalize coordinates instead of storing what the OCR engine gave
+you?"* Provider- and resolution-independence at a stable interface. Ties to the adapter pattern:
+the internal schema is decoupled from any one provider's native format.
+
+#### D8 — OCR behind an interface; testing splits by what needs the binary
+
+**What.** `OcrService` ABC + `TesseractOcrService` (the only importer of `pytesseract`). The
+pixel→fraction normalization is a pure function unit-tested against a synthetic Tesseract dict;
+the live engine runs only in a CI-gated integration test, which is guarded to **fail loudly in
+CI** rather than skip.
+
+**Why.** Tesseract isn't on the dev machine, so most of the value — the normalization logic — is
+tested with no binary at all. The one thing that genuinely needs the engine is isolated and
+pushed to CI, which is declared the source of truth for OCR (ADR-0002). The fail-loud-in-CI
+guard is D2's lesson applied directly: a test that skips in CI is "green but never ran."
+
+**Interview angle.** *"How do you test code that depends on an external binary or service?"*
+Separate the pure logic (test everywhere) from the integration edge (test where the dependency
+lives); never let the integration test silently skip in the environment that's supposed to run
+it.
+
+### Review questions
+
+1. **Read the code.** `_normalize` is a module-level function taking a plain dict, not a method
+   on `TesseractOcrService`. Why does that structure make it easier to test — and what did it let
+   the unit tests avoid constructing?
+2. **Design.** We chose pypdfium2 over PyMuPDF partly on licensing (AGPL). For a public portfolio
+   whose source is already open, does the AGPL concern actually apply? Argue both sides, then say
+   what you'd choose and why.
+3. **Practice.** ADR-0002 calls the coordinate schema "frozen." What concretely goes wrong at M12
+   (eval harness) and M18 (overlay) if we quietly change `BBox` from fractions to pixels later?
+
+### Teach-back
+
+> **"We store where a word is as a percentage of the page, not in pixels."**
+Explain, to a non-engineer, why that one choice means a highlight still lands on the right word
+after the image is resized — and why we had to lock it in before building anything on top.
