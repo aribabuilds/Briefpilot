@@ -275,3 +275,58 @@ it.
 > **"We store where a word is as a percentage of the page, not in pixels."**
 Explain, to a non-engineer, why that one choice means a highlight still lands on the right word
 after the image is resized — and why we had to lock it in before building anything on top.
+
+---
+
+## M4 — Image preprocessing *(done)*
+
+### Decisions log
+
+#### D9 — Deskew by projection-profile maximization, not minAreaRect
+
+**What.** Skew is estimated by rotating the thresholded page through candidate angles and picking
+the one that maximizes the variance of the horizontal projection (row sums). The obvious
+first choice — `cv2.minAreaRect` on the text pixel cloud — was prototyped first and **rejected
+on evidence**: it returned −90°, −84°, −77° for true skews of 0°, 5°, 12°. Its angle is
+ambiguous for a block wider than it is tall, which is exactly what a page of text is.
+
+**Why it matters.** At the true angle, text rows line up into sharp horizontal bands, so the
+row-projection has high peak-to-trough variance; off-angle, the bands smear and variance drops.
+Maximizing that variance is a direct, robust signal. The prototype recovered every test angle
+exactly. The lesson is process, not trig: **prototype the risky primitive against known inputs
+before building on it** — a plausible-looking library call was silently wrong, and only a
+ground-truth check caught it.
+
+**Interview angle.** *"How would you detect and correct document skew?"* Name projection-profile
+or Hough-line approaches, and be ready to say why the naive bounding-box angle fails on text.
+
+#### D10 — Conservative correction: never rotate on a guess
+
+**What.** Deskew skips two cases: a sub-0.5° estimate (nothing worth resampling for) and an
+estimate that saturates near the ±search boundary (the true skew is outside the reliable window,
+so the number is untrustworthy). It corrects only in the confident middle band.
+
+**Why.** A preprocessing step that *degrades* some inputs is worse than one that occasionally
+does nothing — it introduces a silent failure mode with no error. Resampling a page that was
+already straight adds blur; "correcting" a 30° estimate the algorithm can't actually resolve
+half-rotates it into something OCR reads worse. The safe default is identity. Same instinct as
+the validators to come (M11): when unsure, flag/skip, never silently "fix".
+
+**Interview angle.** *"Your preprocessing helps most inputs but hurts a few — ship it?"* No: the
+regression is invisible (no error, just worse accuracy on some docs). Gate the transform to the
+regime where you trust it; make doing nothing the fallback.
+
+### Review questions
+
+1. **Read the code.** `estimate_skew_angle` thresholds with `THRESH_BINARY_INV | THRESH_OTSU`
+   before scoring. Why invert, and why Otsu rather than a fixed threshold like 127?
+2. **Design.** The pipeline is grayscale → deskew → CLAHE → downscale. What breaks or degrades
+   if we move downscale *before* deskew? (Think about the projection search and resampling.)
+3. **Practice.** The OCR-lift test asserts `preprocessed > raw` on a 12° page but can't run on the
+   dev machine. Why is 12° chosen specifically — what would go wrong in CI at 3°, and at 20°?
+
+### Teach-back
+
+> **"We tried the obvious computer-vision function first, and it was confidently wrong."**
+Explain how a plausible library call (minAreaRect) gave garbage angles, how a ground-truth
+prototype caught it in minutes, and why that check came *before* writing the real module.
