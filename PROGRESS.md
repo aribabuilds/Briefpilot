@@ -13,53 +13,53 @@ foundation → upload → OCR with bboxes → extraction → validators → high
 
 ## Sprint 1 (M1–M7) — "A letter goes in, real text comes out"
 
-| M | Objective | Status | Summary |
-|---|-----------|--------|---------|
-| M1 | Repo + environments | **done** | Monorepo scaffold, lint/format/type/test toolchain, **CI verified green**, pre-commit hooks, `Makefile` (`make dev`), `docs/adr/` + ADR-0001, backend boots and serves |
-| M2 | Walking skeleton | **done** | `POST /api/v1/jobs` (upload) + `GET /api/v1/jobs/{id}` (poll) behind repo/service seam; landing + upload form + result page with live polling and honest states. Async job+poll wired now so the multi-second pipeline slots in without a rewrite. In-memory store (Postgres deferred). Verified end-to-end in-browser; 17 backend tests |
-| M3 | Real upload + OCR bake-off | **done** | Ingestion (pypdfium2 rasterize, page-limit/corrupt guards) + `OcrService` ABC + `TesseractOcrService` producing the **frozen** normalized schema (`schemas/ocr.py`); ADR-0002. Bake-off resolved to Tesseract by §3 (see below). Normalization unit-tested locally; real Tesseract test runs in CI. Pipeline wiring deferred to M5 |
-| M4 | Preprocessing | **done** | `services/preprocess.py`: grayscale → conservative projection-profile deskew (skips trivial/saturated angles) → CLAHE contrast → bounded downscale, toggleable. Transforms unit-tested locally; measured OCR-confidence lift on a 12° skew runs in CI (fail-loud). OpenCV-headless (no system libs). Coords safe — preprocessing precedes OCR; ADR-0002 fractions survive downscale. Pipeline wiring still M5 |
-| M5 | OCR integration | todo | OCR client wrapper, normalized `{text, page, bbox, confidence}`, multi-page merge, retries |
-| M6 | Quality gate + fixtures | todo | Page-confidence threshold, "retake photo" UX, golden set → 10 letters |
-| M7 | Sprint-1 close | todo | Bug sweep, phone-camera test, retro, demo capture |
+| M | Problem / user story | Status | Summary |
+|---|----------------------|--------|---------|
+| M1 | *As the maintainer,* I can run and verify the whole stack reproducibly, so every later feature stands on a foundation I can trust (and a recruiter can clone). | **done** | Monorepo scaffold, lint/format/type/test toolchain, **CI verified green**, pre-commit hooks, `Makefile` (`make dev`), `docs/adr/` + ADR-0001, backend boots and serves |
+| M2 | *As a user,* I can upload a file and watch it process through to a result — so the whole path exists before any real analysis does. | **done** | `POST /api/v1/jobs` (upload) + `GET /api/v1/jobs/{id}` (poll) behind repo/service seam; landing + upload form + result page with live polling and honest states. Async job+poll wired now so the multi-second pipeline slots in without a rewrite. In-memory store (Postgres deferred). Verified end-to-end in-browser; 17 backend tests |
+| M3 | *As a user,* I can upload a real photo or PDF of my letter and have its words read with their positions — so later steps get accurate, locatable text. | **done** | Ingestion (pypdfium2 rasterize, page-limit/corrupt guards) + `OcrService` ABC + `TesseractOcrService` producing the **frozen** normalized schema (`schemas/ocr.py`); ADR-0002. Bake-off resolved to Tesseract by §3 (see below). Normalization unit-tested locally; real Tesseract test runs in CI. Pipeline wiring deferred to M5 |
+| M4 | *As a user,* I can photograph a slightly skewed or dimly lit letter and still get accurate text — I don't need a perfect flatbed scan. | **done** | `services/preprocess.py`: grayscale → conservative projection-profile deskew (skips trivial/saturated angles) → CLAHE contrast → bounded downscale, toggleable. Transforms unit-tested locally; measured OCR-confidence lift on a 12° skew runs in CI (fail-loud). OpenCV-headless (no system libs). Coords safe — preprocessing precedes OCR; ADR-0002 fractions survive downscale. Pipeline wiring still M5 |
+| M5 | *As a user,* when I upload a letter I get back the actual extracted text of *my* document, not a placeholder. | todo | Wire ingestion → preprocess → OCR into the job pipeline; multi-page merge, retries/timeouts; real `OcrDocument` on the result |
+| M6 | *As a user,* if my photo is too poor to read, I'm told to retake it (with tips) instead of being handed silent garbage. | todo | Page-confidence threshold, "retake photo" UX, golden set → 10 letters |
+| M7 | *As a user,* the upload→text journey works reliably on my actual phone. | todo | Bug sweep, phone-camera test, retro, demo capture |
 
 ## Sprint 2 (M8–M14) — "The pipeline understands the letter"
 
-| M | Objective | Status | Summary |
-|---|-----------|--------|---------|
-| M8 | Classification | todo | LLM classifier, few-shot per type, "other" fallback, eval vs labeled set |
-| M9 | Extraction schemas | todo | Pydantic schemas top-4 types + generic; `{value, confidence, source_span}` wrapper |
-| M10 | Extraction v1 | todo | End-to-end extraction, source-span linking, null-not-guess in prompt + parser |
-| M11 | Validator layer | todo | Date/deadline/legal-ref/amount rules; failures downgrade + flag, never fix |
-| M12 | Eval harness | todo | Scoring script, scorecard markdown, fast-subset CI job, baseline run |
-| M13 | Accuracy iteration | todo | Measured prompt iterations; per-type few-shots; scope decision point |
-| M14 | Sprint-2 close | todo | Confidence-tier logic, golden set → 20, retro |
+| M | Problem / user story | Status | Summary |
+|---|----------------------|--------|---------|
+| M8 | *As a user,* the app recognizes what kind of letter I uploaded (Finanzamt, Krankenkasse, Bußgeld…), so it applies the right handling. | todo | LLM classifier, few-shot per type, "other" fallback, eval vs labeled set |
+| M9 | *As a user,* the important parts of my letter are captured in a structured form — each field carrying its confidence and where it came from — so results are trustworthy and traceable. | todo | Pydantic schemas top-4 types + generic; `{value, confidence, source_span}` wrapper |
+| M10 | *As a user,* I see the sender, dates, deadlines, amounts and required actions pulled out of my letter, each linked back to the words it came from. | todo | End-to-end extraction, source-span linking, null-not-guess in prompt + parser |
+| M11 | *As a user,* I can trust the extracted dates/amounts/§-references because impossible values are caught and flagged, never silently shown as fact. | todo | Date/deadline/legal-ref/amount rules; failures downgrade + flag, never fix |
+| M12 | *As a hiring manager,* I can see published per-field accuracy on real letters — the quality is measured, not merely claimed. | todo | Scoring script, scorecard markdown, fast-subset CI job, baseline run |
+| M13 | *As a user,* extraction is accurate enough on the common letter types that I can rely on the deadlines it finds. | todo | Measured prompt iterations; per-type few-shots; scope decision point |
+| M14 | *As a user,* each field shows an honest confidence signal, so I know what to double-check. | todo | Confidence-tier logic, golden set → 20, retro |
 
 ## Sprint 3 (M15–M21) — "A human can use and verify it"
 
-| M | Objective | Status | Summary |
-|---|-----------|--------|---------|
-| M15 | Explanation engine | todo | Grounded prompt, readability constraints, advice-phrase linter, disclaimer |
-| M16 | Checklist + glossary | todo | Action derivation with urgency flags; 50-term Amtsdeutsch glossary + popovers |
-| M17 | Results page | todo | Summary card, explanation, checklist, honest processing states, error/empty states |
-| M18 | Source-highlight overlay pt.1 | todo | Document viewer, coordinate normalization, bbox rendering at any scale |
-| M19 | Overlay pt.2 | todo | Click field → scroll + highlight, multi-page, low-confidence verify prompts |
-| M20 | Test hardening | todo | Playwright E2E happy path; OCR→extract→explain integration tests |
-| M21 | Sprint-3 close + usability | todo | 2 non-native testers on real phones, top-3 friction fixes, screenshots |
+| M | Problem / user story | Status | Summary |
+|---|----------------------|--------|---------|
+| M15 | *As a user,* I get a plain-English explanation of my letter, grounded only in its own content — so I understand it without jargon and without invented legal advice. | todo | Grounded prompt, readability constraints, advice-phrase linter, disclaimer |
+| M16 | *As a user,* I get a deadline-sorted action checklist, and I can tap any unfamiliar German term for a plain definition. | todo | Action derivation with urgency flags; 50-term Amtsdeutsch glossary + popovers |
+| M17 | *As a user,* I see one clear results page — summary, explanation, checklist — that works on my phone, with honest loading and error states. | todo | Summary card, explanation, checklist, honest processing states, error/empty states |
+| M18 | *As a user,* I can see the original scan of my letter rendered in the app. | todo | Document viewer, coordinate normalization, bbox rendering at any scale |
+| M19 | *As a user,* I can tap an extracted field and see exactly where it appears, highlighted in my original letter — proof the AI didn't invent it. | todo | Click field → scroll + highlight, multi-page, low-confidence verify prompts |
+| M20 | *As a user,* the full journey keeps working from one release to the next. | todo | Playwright E2E happy path; OCR→extract→explain integration tests |
+| M21 | *As a real non-native user,* I can complete the whole journey on my phone without getting confused. | todo | 2 non-native testers on real phones, top-3 friction fixes, screenshots |
 
 ## Sprint 4 (M22–M30) — "Ship, harden, and tell the story"
 
-| M | Objective | Status | Summary |
-|---|-----------|--------|---------|
-| M22 | Privacy features | todo | One-click delete verified at storage layer, 24h auto-purge, no accounts |
-| M23 | Privacy page + landing | todo | Plain-language privacy page matching actual behavior; final landing copy |
-| M24 | Production hardening | todo | Rate limiting, size guards, structured logging, uptime monitor, guardrails |
-| M25 | Final eval + failure analysis | todo | Full eval on 30 golden letters; honest failure analysis; freeze scorecard |
-| M26 | README + architecture | todo | Architecture diagram, portfolio README rewrite, ADR index |
-| M27 | Demo assets | todo | 3-minute demo video, screenshot set |
-| M28 | Clean-machine test + bug sweep | todo | Follow README on fresh environment, fix gaps, triage bugs |
-| M29 | Launch checklist | todo | Full launch checklist, monitor verification |
-| M30 | Publish + retrospective | todo | Launch post, `docs/retro.md`, post-MVP Sprint-5 candidates |
+| M | Problem / user story | Status | Summary |
+|---|----------------------|--------|---------|
+| M22 | *As a user,* I can delete my document in one click and know it's really gone (and auto-purged within 24h) — no account required. | todo | One-click delete verified at storage layer, 24h auto-purge, no accounts |
+| M23 | *As a user,* I can read, in plain language, exactly what happens to my data — and it matches what the code actually does. | todo | Plain-language privacy page matching actual behavior; final landing copy |
+| M24 | *As a user,* the service stays responsive and safe even under load or abusive input. | todo | Rate limiting, size guards, structured logging, uptime monitor, guardrails |
+| M25 | *As a hiring manager,* I can read an honest account of what the system gets wrong and why. | todo | Full eval on 30 golden letters; honest failure analysis; freeze scorecard |
+| M26 | *As a hiring manager,* I can understand the architecture and reproduce the project from the README in minutes. | todo | Architecture diagram, portfolio README rewrite, ADR index |
+| M27 | *As a hiring manager,* I can watch a 3-minute demo of the full journey without running anything myself. | todo | 3-minute demo video, screenshot set |
+| M28 | *As a new user or developer,* I can follow the README on a clean machine and it just works. | todo | Follow README on fresh environment, fix gaps, triage bugs |
+| M29 | *As the maintainer,* I can confidently declare the MVP live and monitored. | todo | Full launch checklist, monitor verification |
+| M30 | *As the owner,* I can share the finished project and its lessons publicly. | todo | Launch post, `docs/retro.md`, post-MVP Sprint-5 candidates |
 
 ---
 
