@@ -6,6 +6,8 @@ seam where "does our normalization match what Tesseract actually emits" is
 verified against the live tool rather than a synthetic dict.
 """
 
+import os
+
 import pytesseract
 import pytest
 from PIL import Image, ImageDraw, ImageFont
@@ -21,9 +23,16 @@ def _tesseract_available() -> bool:
         return False
 
 
+# Skip where Tesseract is genuinely absent (e.g. the owner's Windows machine),
+# but NEVER skip in CI: there the engine is installed on purpose, so a missing
+# binary means the pipeline is broken, not that the test is inapplicable. Letting
+# it skip silently in CI would recreate exactly the "green but never ran" gap from
+# LEARNING.md D2 — so in CI the tests run and fail loudly if the binary is gone.
+_IN_CI = os.getenv("CI") == "true"
+
 pytestmark = pytest.mark.skipif(
-    not _tesseract_available(),
-    reason="Tesseract binary not installed (runs in CI)",
+    not _tesseract_available() and not _IN_CI,
+    reason="Tesseract binary not installed (runs, and is required, in CI)",
 )
 
 
