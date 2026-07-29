@@ -1,0 +1,13 @@
+# Normalize line endings to LF in the repository regardless of the checkout
+# OS's autocrlf setting. Fixes the "LF will be replaced by CRLF" warning that
+# has appeared on every commit on Windows since M1 — flagged twice, never
+# tracked or fixed until the M7 bug sweep.
+* text=auto eol=lf
+
+# Binary assets: never touch line endings, never diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.svg -text
+*.pdf binary
+*.ico binary

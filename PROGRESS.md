@@ -21,7 +21,33 @@ foundation → upload → OCR with bboxes → extraction → validators → high
 | M4 | *As a user,* I can photograph a slightly skewed or dimly lit letter and still get accurate text — I don't need a perfect flatbed scan. | **done** | `services/preprocess.py`: grayscale → conservative projection-profile deskew (skips trivial/saturated angles) → CLAHE contrast → bounded downscale, toggleable. Transforms unit-tested locally; measured OCR-confidence lift on a 12° skew runs in CI (fail-loud). OpenCV-headless (no system libs). Coords safe — preprocessing precedes OCR; ADR-0002 fractions survive downscale. Pipeline wiring still M5 |
 | M5 | *As a user,* when I upload a letter I get back the actual extracted text of *my* document, not a placeholder. | **done** | `document_pipeline.build_document` (rasterize → preprocess → OCR per page) runs in a background thread pool off the request path; job flips to DONE with real text/summary or FAILED with an error. Per-page retry isolates one bad page, but **total failure surfaces** (all pages fail → `DocumentOcrError` → job failed, not a silent empty "done" — caught by running it locally). Thread-safe in-memory repo; OCR timeout. Verified in-browser (failed path renders cleanly); 45 tests, real OCR e2e in CI |
 | M6 | *As a user,* if my photo is too poor to read, I'm told to retake it (with tips) instead of being handed silent garbage. | **done** | `services/quality.py` (pure `assess_quality`: word-count + mean-confidence thresholds) wired into `JobService` as a new terminal status `low_quality` — distinct from `failed` (OCR ran, output just isn't trustworthy). `RetakePrompt` shows confidence + photo tips and **deliberately withholds the OCR text**. Verified live (backend confirms status; browser renders the prompt with no console errors and no leaked text) via a temporary dependency-override server, since real low-confidence output needs a real bad photo. `eval/golden/` scaffolded (manifest + label format + README); **0 real letters collected yet** — that's the owner's parallel task, not fabricated. 60 tests pass locally |
-| M7 | *As a user,* the upload→text journey works reliably on my actual phone. | todo | Bug sweep, phone-camera test, retro, demo capture |
+| M7 | *As a user,* the upload→text journey works reliably on my actual phone. | **done** (Claude's half) | Bug sweep (`.gitattributes`, stale README intro, stale Known Deviations rows all fixed); bad-photo quality-gate test proven against real Tesseract in CI; LAN phone-test instructions in README; demo shot list + LinkedIn draft written. **Owner's half still open:** the phone test itself, the screen recording, publishing, and golden-letter collection — see Sprint-1 review below |
+
+### Sprint-1 review
+
+Scored against the plan's actual Sprint-1 goal: *"de-risk the single scariest dependency — OCR
+quality on real-world photos — in week one"* via *"live walking skeleton + upload + preprocessing
++ OCR with bounding boxes + quality gate."*
+
+| DoD item | Status | Note |
+|---|---|---|
+| Engineering objective met (skeleton + upload + preprocessing + OCR w/ bboxes + quality gate) | ✅ | M1–M6, all CI-verified |
+| CI green | ✅ | Verified repeatedly; M6 even caught and fixed a real cross-milestone regression (see LEARNING.md) |
+| Skeleton deployed | ❌ **by design** | ADR-0001 — zero-cost mandate; local `make dev` is the deploy target, not a live URL |
+| 10 golden letters collected | ❌ **not started** | `eval/golden/` scaffolded (M6); 0 real letters — deliberately never Claude's task |
+| Upload works on a real phone | ⏳ **untested** | README now documents the LAN-IP config needed (M7); the test itself needs the owner's phone |
+| OCR JSON includes bboxes | ✅ | Frozen since M3 (ADR-0002): every `OcrWord` carries a fractional `BBox` |
+| Quality gate triggers on a deliberately bad photo | ✅ | Proven against **real Tesseract** in CI as of M7 (previously only proven against a synthetic confidence dict) |
+
+**Bottom line:** everything within Claude's control is done and verified. What's open —
+golden letters, the phone test, the demo recording, the LinkedIn post — was always the owner's
+half of Sprint 1, not slippage.
+
+**Retro questions** (from the execution plan, for the owner — not graded, just asked):
+1. Was the OCR bake-off decisive? (Note: it was resolved by the zero-cost mandate rather than a
+   head-to-head benchmark — see ADR-0002. Does that feel like a real answer or a dodge?)
+2. Is the 6–8h/day pace real, now that milestones are decoupled from calendar days?
+3. What surprised you about real letters, once golden-set collection starts?
 
 ## Sprint 2 (M8–M14) — "The pipeline understands the letter"
 
@@ -93,4 +119,7 @@ The execution plan assumes a funded project. `CLAUDE.md` §3 is a **hard rule** 
 | ~~Frontend source never prettier-formatted~~ | **RESOLVED.** CI ran `lint` + `build`, which both pass on unformatted code; `format:check` added to CI and 3 files reformatted | M1 ✅ |
 | `make` not installed on the owner's Windows machine | `make dev` won't run locally until `choco install make`; Makefile targets are thin wrappers, documented in README | Owner's call |
 | ~~Backend never executed locally~~ | **RESOLVED.** Full backend job now runs locally (Python 3.14 venv) and in CI: ruff, black, isort, mypy strict all clean; **9 tests pass**, incl. the `AIService` factory tests. Note local 3.14 vs project target 3.13 — Docker/CI remain the source of truth | M1 ✅ |
-| Existing commits don't follow conventional-commit format | §5.7 | Going forward only; history not rewritten |
+| ~~Existing commits don't follow conventional-commit format~~ | **HOLDING.** Verified: every commit from M2 onward (`feat:`/`fix:`/`test:`/`docs:`/`chore:`) has followed the convention; history before that isn't rewritten | Ongoing, self-verified at M7 |
+| ~~Every commit warns "LF will be replaced by CRLF"~~ | **RESOLVED.** Flagged after M2, never actually fixed until this bug sweep caught it. Added `.gitattributes` (`* text=auto eol=lf`); verified the warning no longer fires on `git add` | M7 ✅ |
+| Sprint-1 DoD item "10 golden letters collected" — **0 collected** | `eval/golden/` scaffold exists (M6) but is empty; this was deliberately never Claude's task (fabricating letters would produce a dishonest scorecard) | Owner, ongoing — not blocking Sprint 2 |
+| Sprint-1 DoD item "upload works on a real phone" — **never tested** | No phone + LAN test has been run; `NEXT_PUBLIC_API_URL` bakes `localhost` at build time, which breaks from an actual phone unless overridden — documented in README (M7) | Owner — see README "Testing on a real phone" |

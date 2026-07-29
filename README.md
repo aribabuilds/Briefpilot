@@ -2,10 +2,14 @@
 
 AI Case Manager for German Bureaucracy.
 
-This repository currently contains the **project foundation only**: a clean,
-scalable skeleton for the frontend, backend, database, and CI/CD. No business
-logic, authentication, OCR, or AI features are implemented yet — see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how those will be added later.
+Upload a photo or PDF of a German official letter and get its text extracted
+via a real OCR pipeline (ingestion → preprocessing → Tesseract), with a
+quality gate that asks you to retake an unreadable photo instead of showing
+garbled output. See [PROGRESS.md](PROGRESS.md) for exactly what's built and
+what's still ahead — classification, structured extraction, and the
+plain-English explanation land in Sprint 2. There is no authentication (by
+design — see [ADR-0001](docs/adr/0001-local-first-zero-cost-demo-strategy.md))
+and no hosted deployment.
 
 ## Architecture overview
 
@@ -168,6 +172,32 @@ View logs for one service:
 ```bash
 docker compose logs -f backend
 ```
+
+## Testing on a real phone (LAN)
+
+The frontend bakes `NEXT_PUBLIC_API_URL` in at **build time**. The default,
+`http://localhost:8000`, works from a browser on the same machine — but from
+a phone, "localhost" means the phone itself, not your computer. To actually
+photograph a letter with a phone camera, point both apps at your machine's
+LAN IP instead of `localhost`:
+
+1. **Find your LAN IP** (same Wi-Fi as the phone):
+   - Windows: `ipconfig` → the `IPv4 Address` under your active adapter
+   - macOS/Linux: `ifconfig` or `ip addr` → look for `192.168.x.x` / `10.x.x.x`
+2. **Set it in both `.env` files** before starting the stack:
+   ```bash
+   # frontend/.env
+   NEXT_PUBLIC_API_URL=http://<your-lan-ip>:8000
+
+   # backend/.env
+   CORS_ORIGINS=http://<your-lan-ip>:3000
+   ```
+3. `make dev` (or the two dev-server commands above), then on the phone's
+   browser (same Wi-Fi) go to `http://<your-lan-ip>:3000`.
+
+Rebuild the frontend after changing `NEXT_PUBLIC_API_URL` — Next.js inlines
+`NEXT_PUBLIC_*` variables at build time, so `npm run dev` picks up a changed
+`.env` on restart, but a production build (`npm run build`) needs rebuilding.
 
 ## AI provider configuration
 

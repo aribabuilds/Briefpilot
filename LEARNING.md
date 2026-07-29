@@ -509,3 +509,68 @@ priciest and least portable (they need a system binary), so they're scoped to CI
 The trade-off is real — this exact failure mode — and the mitigation isn't "run everything
 everywhere," it's "know precisely which tests only run in CI, and treat CI as the actual gate for
 that code, not a formality after local tests pass."
+
+---
+
+## M7 — Sprint-1 close *(done)*
+
+### Decisions log
+
+#### D17 — A systematic bug sweep found a fix that had been "flagged" twice and actioned zero times
+
+**What.** The `.gitattributes` CRLF fix was mentioned as a to-do after M2, then again after M5 —
+and never actually written, because it never blocked anything urgent enough to force the issue.
+It only got fixed now because M7's bug sweep explicitly asked "what's been noted but not done?"
+rather than only checking "does everything currently pass?"
+
+**Why it matters.** A TODO mentioned in passing is not the same as a TODO tracked somewhere it
+will be looked at again. Nothing in this repo's process forced a revisit — it lived only in prior
+chat turns, which is exactly the kind of state that survives a compaction or a session boundary
+by accident, not by design. The fix itself: `* text=auto eol=lf` in `.gitattributes`, verified by
+staging a file and confirming the warning is gone.
+
+**Interview angle.** *"How do you make sure a 'we should fix this later' doesn't just evaporate?"*
+Write it down somewhere structurally checked, not just said — this project's answer is
+`PROGRESS.md`'s Known Deviations table, and M7 exists partly to audit that table for exactly this
+gap.
+
+#### D18 — Proving the quality gate against real Tesseract, not just a synthetic confidence dict
+
+**What.** Sprint-1's own Definition of Done says *"quality gate triggers on a deliberately bad
+photo."* Before M7, that was only proven two ways: `test_quality.py` (a pure function fed a
+synthetic confidence dict — no OCR involved) and a manual dependency-override script used to
+verify the frontend renders `RetakePrompt` correctly. Neither ran a real bad photo through real
+Tesseract. `test_pipeline_e2e.py` now has a fixture built to defeat OCR on purpose — tiny
+low-contrast text, then a heavy Gaussian blur — asserting the real pipeline lands on
+`LOW_QUALITY`.
+
+**Why it matters.** This is the same gap-between-"looks-done"-and-"is-done" pattern as D2 and
+D12, at the level of an entire sprint's acceptance criteria rather than one function. A DoD
+checklist item can be marked complete because *a* test exists near it, without that test actually
+exercising the real path the checklist item describes.
+
+**Interview angle.** *"You have a passing unit test for this behavior — why wasn't that enough?"*
+A unit test proves the logic is correct given its inputs; it doesn't prove the real upstream
+system (Tesseract, in this case) actually produces those inputs under the condition you claim to
+handle. Both tests earn their keep for different reasons: the synthetic one is fast and covers
+edge cases (word_count exactly at the boundary, etc.) that are hard to reliably reproduce with a
+real image; the real one is the only proof the DoD claim is actually true.
+
+### Review questions
+
+1. **Read the code.** The bad-photo fixture in `test_pipeline_e2e.py` uses `fill=(232, 232, 232)`
+   (very light gray, not pure white) and `GaussianBlur(radius=10)` together, rather than either
+   alone. Why is the *combination* important — what could go wrong with only one of the two?
+2. **Design.** `.gitattributes` marks `*.svg` as `-text` (no line-ending normalization at all,
+   unlike `*.png`/`*.jpg` marked `binary`). SVG is actually a text format (XML). Why the different
+   treatment, and what would break if SVGs were left under the default `* text=auto eol=lf` rule?
+3. **Practice.** `PROGRESS.md`'s Sprint-1 review splits "not done" into three different reasons:
+   *by design* (no deployment), *blocked on the owner* (golden letters, phone test), and *just not
+   run yet*. Why does collapsing these into one "incomplete" bucket make the tracker less useful,
+   not just less detailed?
+
+### Teach-back
+
+> **"Two things were technically 'known' for weeks and fixed by nobody — until we went looking on purpose."**
+Explain the difference between a problem being *mentioned* and a problem being *tracked*, using
+the `.gitattributes` fix (mentioned twice, fixed never — until a deliberate audit) as the example.

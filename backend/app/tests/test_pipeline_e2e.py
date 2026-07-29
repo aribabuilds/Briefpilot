@@ -11,7 +11,7 @@ import time
 import pytesseract
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from app.main import app
 from app.schemas.job import JobStatus
@@ -42,6 +42,25 @@ def _letter_pdf() -> bytes:
     lines = ["Finanzamt Muenchen", "Steuerbescheid 2026", "Bitte zahlen Sie den Betrag"]
     for i, line in enumerate(lines):
         draw.text((40, 30 + i * 90), line, fill="black", font=font)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PDF")
+    return buffer.getvalue()
+
+
+def _unreadable_photo_pdf() -> bytes:
+    # A deliberately bad photo: tiny, low-contrast text, heavily blurred.
+    # Gaussian blur destroys the sharp edges OCR needs regardless of contrast,
+    # so CLAHE's local-contrast preprocessing (M4) cannot recover legibility --
+    # this should genuinely be near-zero words at low confidence, not merely
+    # "hard". Sprint-1's DoD ("quality gate triggers on a deliberately bad
+    # photo") has never actually been proven against real Tesseract until now.
+    image = Image.new("RGB", (700, 220), "white")
+    font = ImageFont.load_default(size=8)
+    draw = ImageDraw.Draw(image)
+    draw.text(
+        (20, 20), "kaum lesbarer verwaschener Text auf diesem Foto", fill=(232, 232, 232), font=font
+    )
+    image = image.filter(ImageFilter.GaussianBlur(radius=10))
     buffer = io.BytesIO()
     image.save(buffer, format="PDF")
     return buffer.getvalue()
@@ -78,3 +97,18 @@ def test_upload_runs_real_ocr_and_returns_text() -> None:
     assert isinstance(result, dict)
     assert "finanzamt" in str(result["text"]).lower()
     assert int(result["word_count"]) >= 1
+
+
+def test_deliberately_bad_photo_is_marked_low_quality() -> None:
+    # Sprint-1's own Definition of Done: "quality gate triggers on a
+    # deliberately bad photo" -- proven here against the real pipeline, not a
+    # synthetic confidence dict (that's test_quality.py's job).
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/jobs",
+        files={"file": ("bad-photo.pdf", _unreadable_photo_pdf(), "application/pdf")},
+    )
+    assert created.status_code == 201
+
+    body = _poll_until_terminal(client, created.json()["id"])
+    assert body["status"] == JobStatus.LOW_QUALITY.value, body
