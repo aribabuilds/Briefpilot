@@ -13,6 +13,7 @@ from app.schemas.job import Job, JobResult, JobStatus
 from app.schemas.ocr import OcrDocument
 from app.services.document_pipeline import build_document
 from app.services.ocr import TesseractOcrService
+from app.services.quality import assess_quality
 
 logger = structlog.get_logger(__name__)
 
@@ -37,11 +38,19 @@ class JobService:
     """
 
     def __init__(
-        self, repository: JobRepository, runner: DocumentRunner, executor: Executor
+        self,
+        repository: JobRepository,
+        runner: DocumentRunner,
+        executor: Executor,
+        *,
+        min_mean_confidence: float,
+        min_word_count: int,
     ) -> None:
         self._repository = repository
         self._runner = runner
         self._executor = executor
+        self._min_mean_confidence = min_mean_confidence
+        self._min_word_count = min_word_count
 
     def create_job(self, *, filename: str, content: bytes, content_type: str) -> Job:
         job = Job(
@@ -64,7 +73,18 @@ class JobService:
             logger.exception("job_processing_failed", job_id=job_id)
             self._update(job_id, status=JobStatus.FAILED, error=str(exc))
             return
-        self._update(job_id, status=JobStatus.DONE, result=_summarize(filename, document))
+
+        assessment = assess_quality(
+            document,
+            min_mean_confidence=self._min_mean_confidence,
+            min_word_count=self._min_word_count,
+        )
+        result = _summarize(filename, document)
+        if not assessment.passed:
+            logger.info("job_low_quality", job_id=job_id, reason=assessment.reason)
+            self._update(job_id, status=JobStatus.LOW_QUALITY, result=result)
+            return
+        self._update(job_id, status=JobStatus.DONE, result=result)
 
     def _update(
         self,
@@ -115,4 +135,10 @@ def get_job_service() -> JobService:
         max_workers=settings.ocr_worker_threads,
         thread_name_prefix="ocr",
     )
-    return JobService(InMemoryJobRepository(), runner, executor)
+    return JobService(
+        InMemoryJobRepository(),
+        runner,
+        executor,
+        min_mean_confidence=settings.min_mean_confidence,
+        min_word_count=settings.min_word_count,
+    )

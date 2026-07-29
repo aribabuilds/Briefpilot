@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { RetakePrompt } from "@/components/RetakePrompt";
 import { getJob } from "@/services/api";
 import type { Job } from "@/types/job";
 
@@ -13,6 +14,7 @@ type ViewState =
   | { kind: "loading" }
   | { kind: "processing"; job: Job }
   | { kind: "done"; job: Job }
+  | { kind: "low_quality"; job: Job }
   | { kind: "failed"; job: Job }
   | { kind: "error"; message: string };
 
@@ -33,6 +35,10 @@ export default function ResultPage() {
         if (job.status === "done") {
           setState({ kind: "done", job });
           return; // terminal
+        }
+        if (job.status === "low_quality") {
+          setState({ kind: "low_quality", job });
+          return; // terminal — OCR ran, but the output isn't reliable enough to show
         }
         if (job.status === "failed") {
           setState({ kind: "failed", job });
@@ -111,6 +117,15 @@ function renderState(state: ViewState) {
         </div>
       );
     }
+    case "low_quality":
+      // Deliberately does not render state.job.result.text: the quality gate
+      // exists precisely to withhold OCR output that's too unreliable to show.
+      return (
+        <RetakePrompt
+          meanConfidence={state.job.result?.mean_confidence ?? 0}
+          wordCount={state.job.result?.word_count ?? 0}
+        />
+      );
     case "failed":
       return (
         <div role="alert" className="flex flex-col gap-2 text-center">

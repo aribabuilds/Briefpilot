@@ -393,3 +393,86 @@ resilience, it's a mute button.
 Explain how catch-everything resilience turned a completely missing OCR engine into a
 zero-word "success", and the one distinction (a page that *failed* vs a page that was *blank*)
 that fixed it.
+
+---
+
+## M6 — OCR quality gate + retake UX *(done)*
+
+### Decisions log
+
+#### D13 — A third terminal status, not a flag on `failed` or `done`
+
+**What.** `JobStatus` gained `low_quality`, sitting between `done` and `failed`. It's not "failed
+with a note" or "done with a warning" — it's its own terminal state, with its own frontend branch
+that renders `RetakePrompt` instead of either the result view or the error view.
+
+**Why.** `failed` means the pipeline itself broke (D12's territory — a dead engine, a corrupt
+file). `low_quality` means the pipeline worked exactly as designed and still produced output too
+unreliable to act on. Conflating them would blur two different remediations: a `failed` job is an
+engineering problem (check logs, maybe retry); a `low_quality` job is a user problem (retake the
+photo). A shared status with a flag would make the frontend branch on two things at once instead
+of one; three clean terminal states is easier to reason about than two states plus a modifier.
+
+**Interview angle.** *"Why not just add a `quality_ok: bool` field to the done result?"* Because
+the two failure modes need different UI entirely (retry-with-tips vs. generic error), and a
+boolean flag invites the frontend to almost-handle it — check the flag in one place, forget it in
+another. A distinct enum value can't be silently ignored the same way; TypeScript's
+discriminated union forces every render branch to exist.
+
+#### D14 — Withhold the text entirely; no "low confidence, shown anyway" affordance
+
+**What.** When quality fails, the frontend never renders `result.text`, even faded or behind a
+warning banner. `RetakePrompt` shows only the confidence number and word count — never the
+garbled OCR output itself.
+
+**Why.** This project's whole trust proposition (`CLAUDE.md` §1, §5) is that extracted content is
+provably grounded in the source. Showing "confidence: 20%, but here's what we think it says"
+trains the user to treat low-confidence garbage as provisionally true — the opposite of the
+trust the source-highlight overlay (M18) is built to earn. It's the same principle as D10's
+conservative deskew and D12's fail-loud OCR: when you don't trust the output, don't hand it over
+with a disclaimer attached and call that honest. A disclaimer is not a substitute for withholding.
+
+**What was rejected.** A "show anyway" toggle. Logged to BACKLOG as a Nice-to-Have, not built now
+— it's real user value (some blurry photos are still readable to a human even at low OCR
+confidence) but it directly cuts against the trust principle above, so it needs deliberate
+product judgment later, not a quick default now.
+
+**Interview angle.** *"Isn't hiding the data paternalistic? What if the user wants to see it
+anyway?"* Good challenge — the honest answer is it's a deliberate trust trade-off for an MVP
+whose central claim is "we don't show you things we can't back up," not a technical limitation.
+A future "show anyway, unverified" mode is a legitimate feature; it just isn't the safe default.
+
+#### D15 — Golden-set scaffold ships with the format, not with data
+
+**What.** `eval/golden/` got a manifest schema, a per-document label format, and a README
+explaining how to collect and redact a real letter — with zero letters in it.
+
+**Why.** The eval suite (M12) is only as honest as its fixtures. Writing plausible-looking fake
+letters to hit a milestone checkbox would produce a scorecard that measures nothing real — worse
+than no scorecard, because it *looks* rigorous. The format needed to exist now so collection can
+start in parallel without blocking on M12; the data itself is explicitly out of scope for an AI
+pair to generate.
+
+**Interview angle.** *"Why not generate synthetic test letters to unblock testing sooner?"*
+Synthetic data is fine for unit tests of the pipeline mechanics (that's exactly what
+`test_document_pipeline.py` and `test_quality.py` already do). It's the wrong tool for an eval
+suite whose entire purpose is measuring real-world accuracy — synthetic fixtures silently
+optimize for themselves.
+
+### Review questions
+
+1. **Read the code.** `assess_quality` checks `word_count == 0` before computing `mean_confidence`.
+   What would happen — concretely, what Python error — if that check came after instead?
+2. **Design.** `min_word_count` and `min_mean_confidence` are both hard cutoffs. Name one real
+   photo scenario where a document could reasonably pass one threshold and fail the other, and say
+   which failure mode (too few words vs. too low confidence) is the more dangerous one to get wrong.
+3. **Practice.** The low-quality path was verified live using a script that overrides
+   `get_job_service` on the real FastAPI app and runs it under real `uvicorn` — not `TestClient`.
+   Why does `app.dependency_overrides` work the same way there, and what does that tell you about
+   how FastAPI's dependency injection is actually implemented?
+
+### Teach-back
+
+> **"We show you the confidence score, but never the text it's attached to, if it's too low to trust."**
+Explain why "low confidence, shown anyway" would quietly undermine the one thing this whole
+project is trying to prove — that what you see is what the letter actually says.

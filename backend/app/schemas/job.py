@@ -7,6 +7,9 @@ from pydantic import BaseModel
 class JobStatus(StrEnum):
     PROCESSING = "processing"
     DONE = "done"
+    # OCR ran but the output is too unreliable to show — the user should retake.
+    # Distinct from FAILED, where OCR could not run at all.
+    LOW_QUALITY = "low_quality"
     FAILED = "failed"
 
 

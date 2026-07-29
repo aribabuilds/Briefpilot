@@ -21,15 +21,24 @@ class _SyncExecutor:
         return None
 
 
-def _document(text: str) -> OcrDocument:
-    word = OcrWord(
-        text=text, page=0, bbox=BBox(x=0.1, y=0.1, width=0.2, height=0.1), confidence=0.8
-    )
-    return OcrDocument(pages=[OcrPage(page=0, width=1000, height=500, words=[word])])
+def _document(text: str, *, words: int = 10, confidence: float = 0.8) -> OcrDocument:
+    page_words = [
+        OcrWord(
+            text=text, page=0, bbox=BBox(x=0.1, y=0.1, width=0.2, height=0.1), confidence=confidence
+        )
+        for _ in range(words)
+    ]
+    return OcrDocument(pages=[OcrPage(page=0, width=1000, height=500, words=page_words)])
 
 
 def _service_with(runner: Callable[[bytes, str], OcrDocument]) -> JobService:
-    return JobService(InMemoryJobRepository(), runner, _SyncExecutor())
+    return JobService(
+        InMemoryJobRepository(),
+        runner,
+        _SyncExecutor(),
+        min_mean_confidence=0.5,
+        min_word_count=5,
+    )
 
 
 def _override_service(service: JobService) -> None:
@@ -63,16 +72,36 @@ def test_upload_returns_201_processing(client: TestClient) -> None:
 
 
 def test_completed_job_carries_extracted_text_and_summary(client: TestClient) -> None:
-    _override_service(_service_with(lambda content, ct: _document("Finanzamt")))
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt", words=10)))
     job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
 
     body = client.get(f"/api/v1/jobs/{job_id}").json()
     assert body["status"] == JobStatus.DONE.value
-    assert body["result"]["text"] == "Finanzamt"
-    assert body["result"]["word_count"] == 1
+    assert "Finanzamt" in body["result"]["text"]
+    assert body["result"]["word_count"] == 10
     assert body["result"]["page_count"] == 1
     assert body["result"]["mean_confidence"] == pytest.approx(0.8)
     assert body["error"] is None
+
+
+def test_low_confidence_document_is_marked_low_quality(client: TestClient) -> None:
+    _override_service(
+        _service_with(lambda content, ct: _document("blur", words=10, confidence=0.2))
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    # OCR ran, so it's not FAILED — but the output is too weak to show.
+    assert body["status"] == JobStatus.LOW_QUALITY.value
+    assert body["result"]["mean_confidence"] == pytest.approx(0.2)
+
+
+def test_too_few_words_is_marked_low_quality(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("hi", words=2, confidence=0.9)))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.LOW_QUALITY.value
 
 
 def test_pipeline_failure_marks_job_failed(client: TestClient) -> None:

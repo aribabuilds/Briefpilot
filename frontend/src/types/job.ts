@@ -1,7 +1,7 @@
 // Mirrors the backend Pydantic contract in backend/app/schemas/job.py.
 // Kept in sync by hand for now; a generated client is a post-MVP nicety.
 
-export type JobStatus = "processing" | "done" | "failed";
+export type JobStatus = "processing" | "done" | "low_quality" | "failed";
 
 export interface JobResult {
   filename: string;

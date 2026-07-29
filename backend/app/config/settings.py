@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: float = 30.0
     ocr_worker_threads: int = 2
 
+    # Quality gate (M6): a document that reads with fewer words than
+    # min_word_count, or a mean word confidence below min_mean_confidence, is
+    # marked LOW_QUALITY and the user is asked to retake. Tune against real photos.
+    min_mean_confidence: float = 0.5
+    min_word_count: int = 5
+
     # Preprocessing (M4). Deskew only corrects within +/- this angle; beyond it
     # the estimate is treated as unreliable and skipped. Downscale bounds the
     # longest side to cap OCR cost on large phone photos.
