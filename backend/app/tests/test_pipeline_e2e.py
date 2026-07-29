@@ -34,12 +34,22 @@ pytestmark = pytest.mark.skipif(
 
 
 def _letter_pdf() -> bytes:
-    image = Image.new("RGB", (1000, 300), "white")
-    font = ImageFont.load_default(size=44)
-    ImageDraw.Draw(image).text((40, 60), "Finanzamt Muenchen", fill="black", font=font)
+    # Needs >= min_word_count (5, see Settings) so the real run clears the M6
+    # quality gate and reaches DONE rather than LOW_QUALITY.
+    image = Image.new("RGB", (1000, 320), "white")
+    font = ImageFont.load_default(size=40)
+    draw = ImageDraw.Draw(image)
+    lines = ["Finanzamt Muenchen", "Steuerbescheid 2026", "Bitte zahlen Sie den Betrag"]
+    for i, line in enumerate(lines):
+        draw.text((40, 30 + i * 90), line, fill="black", font=font)
     buffer = io.BytesIO()
     image.save(buffer, format="PDF")
     return buffer.getvalue()
+
+
+_TERMINAL_STATUSES = frozenset(
+    {JobStatus.DONE.value, JobStatus.LOW_QUALITY.value, JobStatus.FAILED.value}
+)
 
 
 def _poll_until_terminal(
@@ -48,7 +58,7 @@ def _poll_until_terminal(
     deadline = time.time() + timeout
     while time.time() < deadline:
         body: dict[str, object] = client.get(f"/api/v1/jobs/{job_id}").json()
-        if body["status"] in (JobStatus.DONE.value, JobStatus.FAILED.value):
+        if body["status"] in _TERMINAL_STATUSES:
             return body
         time.sleep(0.25)
     raise AssertionError("job did not finish within the timeout")

@@ -476,3 +476,36 @@ optimize for themselves.
 > **"We show you the confidence score, but never the text it's attached to, if it's too low to trust."**
 Explain why "low confidence, shown anyway" would quietly undermine the one thing this whole
 project is trying to prove — that what you see is what the letter actually says.
+
+### Post-merge fix: M6 broke M5's own CI test
+
+**What happened.** `9127319` (the M6 commit) passed every local check — ruff, black, isort,
+mypy, and 53 passed/4 skipped in pytest — and still went red in CI. `pytest` was the only failed
+step; ruff/black/isort/mypy all stayed green. The failure was in `test_pipeline_e2e.py` (M5's
+real-OCR end-to-end test), which only executes for real in CI, exactly as designed.
+
+**Root cause.** M6 added a third terminal `JobStatus`, `LOW_QUALITY`, with a default
+`min_word_count` of 5. M5's e2e fixture text was `"Finanzamt Muenchen"` — **two words** — so the
+real pipeline correctly routed it to `LOW_QUALITY`, not `DONE`. But `_poll_until_terminal` only
+recognized `DONE` and `FAILED` as terminal, so it polled for the full 30-second timeout and then
+raised a generic "job did not finish" error, with no hint that the real cause was one test's
+fixture violating another feature's new threshold.
+
+**Why it matters.** This is D2's family of bugs from the *opposite* direction: not a check that
+silently didn't run, but a check that ran, was right, and exposed an implicit coupling my local
+suite couldn't see — because the OCR-dependent tests are exactly the ones that skip locally. CI
+was not being paranoid; it was the only place this class of regression *could* be caught, which
+is the whole reason M3's fail-loud-in-CI guard exists. It's also a concrete argument for running
+**every** CI-gated integration test whenever a feature changes shared state (`JobStatus` here),
+not just the tests that obviously touch the new code.
+
+**Fix.** Gave the e2e fixture enough words to clear the new threshold with margin, and added
+`LOW_QUALITY` to the terminal-status set so a *future* regression fails fast with a clear
+assertion message instead of a 30-second timeout and a guess.
+
+**Interview angle.** *"You just told me CI caught something local tests couldn't. Doesn't that
+mean your test suite has a blind spot?"* Yes, deliberately: the OCR-dependent tests are the
+priciest and least portable (they need a system binary), so they're scoped to CI on purpose (D8).
+The trade-off is real — this exact failure mode — and the mitigation isn't "run everything
+everywhere," it's "know precisely which tests only run in CI, and treat CI as the actual gate for
+that code, not a formality after local tests pass."
