@@ -3,10 +3,16 @@ from functools import lru_cache
 from app.config.settings import Settings, get_settings
 from app.services.ai.base import AIService
 from app.services.ai.providers.azure_openai_service import AzureOpenAIService
+from app.services.ai.providers.gemini_service import GeminiService
 from app.services.ai.providers.openai_service import OpenAIService
 
 
 def build_ai_service(settings: Settings) -> AIService:
+    if settings.ai_provider == "gemini":
+        if not settings.gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY must be set when AI_PROVIDER=gemini.")
+        return GeminiService(api_key=settings.gemini_api_key, model=settings.gemini_model)
+
     if settings.ai_provider == "azure_openai":
         if not (
             settings.azure_openai_api_key

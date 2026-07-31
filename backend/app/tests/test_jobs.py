@@ -6,9 +6,10 @@ from fastapi.testclient import TestClient
 from app.config.settings import Settings, get_settings
 from app.main import app
 from app.repositories.job_repository import InMemoryJobRepository
+from app.schemas.classification import ClassificationResult, DocumentType
 from app.schemas.job import JobStatus
 from app.schemas.ocr import BBox, OcrDocument, OcrPage, OcrWord
-from app.services.job_service import JobService, get_job_service
+from app.services.job_service import ClassifierRunner, JobService, get_job_service
 
 PDF = ("letter.pdf", b"%PDF-1.4 fake", "application/pdf")
 
@@ -31,13 +32,18 @@ def _document(text: str, *, words: int = 10, confidence: float = 0.8) -> OcrDocu
     return OcrDocument(pages=[OcrPage(page=0, width=1000, height=500, words=page_words)])
 
 
-def _service_with(runner: Callable[[bytes, str], OcrDocument]) -> JobService:
+def _service_with(
+    runner: Callable[[bytes, str], OcrDocument],
+    *,
+    classifier: ClassifierRunner | None = None,
+) -> JobService:
     return JobService(
         InMemoryJobRepository(),
         runner,
         _SyncExecutor(),
         min_mean_confidence=0.5,
         min_word_count=5,
+        classifier=classifier,
     )
 
 
@@ -82,6 +88,68 @@ def test_completed_job_carries_extracted_text_and_summary(client: TestClient) ->
     assert body["result"]["page_count"] == 1
     assert body["result"]["mean_confidence"] == pytest.approx(0.8)
     assert body["error"] is None
+
+
+# --- classification wiring (M8) -------------------------------------------
+
+
+def test_successful_classification_populates_doc_type(client: TestClient) -> None:
+    def classify(text: str) -> ClassificationResult:
+        return ClassificationResult(doc_type=DocumentType.FINANZAMT, confidence=0.87)
+
+    _override_service(
+        _service_with(lambda content, ct: _document("Finanzamt"), classifier=classify)
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["doc_type"] == DocumentType.FINANZAMT.value
+    assert body["result"]["doc_type_confidence"] == pytest.approx(0.87)
+
+
+def test_classifier_failure_leaves_doc_type_null_but_job_still_done(client: TestClient) -> None:
+    def boom(text: str) -> ClassificationResult:
+        raise RuntimeError("GEMINI_API_KEY must be set when AI_PROVIDER=gemini.")
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), classifier=boom))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    # Null-not-guess: no LLM key configured degrades the field, not the job.
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["doc_type"] is None
+    assert body["result"]["doc_type_confidence"] is None
+    assert body["result"]["text"]  # OCR output is unaffected
+
+
+def test_no_classifier_configured_leaves_doc_type_null(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), classifier=None))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["doc_type"] is None
+
+
+def test_classification_is_skipped_for_low_quality_documents(client: TestClient) -> None:
+    calls: list[str] = []
+
+    def classify(text: str) -> ClassificationResult:
+        calls.append(text)
+        return ClassificationResult(doc_type=DocumentType.FINANZAMT, confidence=0.9)
+
+    _override_service(
+        _service_with(
+            lambda content, ct: _document("blur", words=10, confidence=0.2),
+            classifier=classify,
+        )
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.LOW_QUALITY.value
+    assert calls == []  # garbled OCR text is never sent to the classifier
 
 
 def test_low_confidence_document_is_marked_low_quality(client: TestClient) -> None:

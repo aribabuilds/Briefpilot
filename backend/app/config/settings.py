@@ -54,7 +54,12 @@ class Settings(BaseSettings):
     deskew_max_angle: float = 15.0
     preprocess_max_dimension: int = 3000
 
-    ai_provider: Literal["openai", "azure_openai"] = "openai"
+    # Default is the free-tier provider (CLAUDE.md §3: no paid API calls by
+    # default). OpenAI/Azure remain available as an explicit opt-in — see
+    # docs/adr/0003-free-tier-llm-default-and-aiservice-naming.md.
+    ai_provider: Literal["gemini", "openai", "azure_openai"] = "gemini"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     azure_openai_api_key: str | None = None

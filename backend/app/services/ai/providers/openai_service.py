@@ -6,7 +6,13 @@ from app.schemas.ai import (
     SummarizationRequest,
     SummarizationResult,
 )
+from app.schemas.classification import ClassificationRequest, ClassificationResult
 from app.services.ai.base import AIService
+from app.services.ai.classification_parsing import parse_classification_response
+from app.services.ai.prompts.classify import (
+    CLASSIFICATION_SYSTEM_INSTRUCTION,
+    build_classification_user_message,
+)
 
 _DEFAULT_EXTRACTION_INSTRUCTIONS = "Extract structured data from the document."
 _SUMMARIZATION_INSTRUCTIONS = "Summarize the following text."
@@ -44,3 +50,13 @@ class OpenAIService(AIService):
         )
         summary = response.choices[0].message.content or ""
         return SummarizationResult(summary=summary)
+
+    async def classify_document(self, request: ClassificationRequest) -> ClassificationResult:
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": CLASSIFICATION_SYSTEM_INSTRUCTION},
+                {"role": "user", "content": build_classification_user_message(request.content)},
+            ],
+        )
+        return parse_classification_response(response.choices[0].message.content or "")

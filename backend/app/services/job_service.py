@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -9,8 +10,10 @@ import structlog
 
 from app.config.settings import get_settings
 from app.repositories.job_repository import InMemoryJobRepository, JobRepository
+from app.schemas.classification import ClassificationRequest, ClassificationResult
 from app.schemas.job import Job, JobResult, JobStatus
 from app.schemas.ocr import OcrDocument
+from app.services.ai import get_ai_service
 from app.services.document_pipeline import build_document
 from app.services.ocr import TesseractOcrService
 from app.services.quality import assess_quality
@@ -19,6 +22,9 @@ logger = structlog.get_logger(__name__)
 
 # The pipeline reduced to what the job layer needs: bytes + content type -> document.
 DocumentRunner = Callable[[bytes, str], OcrDocument]
+# Likewise reduced for classification: text in, a result out. JobService never
+# imports AIService or knows an LLM is involved — same seam as DocumentRunner.
+ClassifierRunner = Callable[[str], ClassificationResult]
 
 
 class Executor(Protocol):
@@ -45,12 +51,14 @@ class JobService:
         *,
         min_mean_confidence: float,
         min_word_count: int,
+        classifier: ClassifierRunner | None = None,
     ) -> None:
         self._repository = repository
         self._runner = runner
         self._executor = executor
         self._min_mean_confidence = min_mean_confidence
         self._min_word_count = min_word_count
+        self._classifier = classifier
 
     def create_job(self, *, filename: str, content: bytes, content_type: str) -> Job:
         job = Job(
@@ -84,6 +92,23 @@ class JobService:
             logger.info("job_low_quality", job_id=job_id, reason=assessment.reason)
             self._update(job_id, status=JobStatus.LOW_QUALITY, result=result)
             return
+
+        # Classification is best-effort and must never fail the job: a missing
+        # API key, a network error, or a provider outage all degrade to
+        # doc_type=None (null-not-guess) rather than a FAILED job over a
+        # capability that isn't OCR's responsibility.
+        if self._classifier is not None:
+            try:
+                classification = self._classifier(document.text)
+                result = result.model_copy(
+                    update={
+                        "doc_type": classification.doc_type,
+                        "doc_type_confidence": classification.confidence,
+                    }
+                )
+            except Exception:  # noqa: BLE001 - best-effort; never fail the job over this
+                logger.warning("classification_failed", job_id=job_id, exc_info=True)
+
         self._update(job_id, status=JobStatus.DONE, result=result)
 
     def _update(
@@ -114,6 +139,15 @@ def _summarize(filename: str, document: OcrDocument) -> JobResult:
     )
 
 
+def _classify(text: str) -> ClassificationResult:
+    # get_ai_service() is only called here, per job, not at startup -- a
+    # missing GEMINI_API_KEY (or any other provider misconfiguration) surfaces
+    # as a RuntimeError caught by JobService's best-effort classification
+    # block, not as a crash on app boot or on every unrelated upload.
+    ai_service = get_ai_service()
+    return asyncio.run(ai_service.classify_document(ClassificationRequest(content=text)))
+
+
 @lru_cache
 def get_job_service() -> JobService:
     settings = get_settings()
@@ -141,4 +175,5 @@ def get_job_service() -> JobService:
         executor,
         min_mean_confidence=settings.min_mean_confidence,
         min_word_count=settings.min_word_count,
+        classifier=_classify,
     )

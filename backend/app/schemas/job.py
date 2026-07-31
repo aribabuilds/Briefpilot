@@ -3,6 +3,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from app.schemas.classification import DocumentType
+
 
 class JobStatus(StrEnum):
     PROCESSING = "processing"
@@ -22,6 +24,11 @@ class JobResult(BaseModel):
     word_count: int
     mean_confidence: float
     text: str
+    # Null-not-guess (M8): classification is best-effort and never blocks the
+    # job. Missing entirely (no key yet, a network error) or genuinely unsure
+    # both look the same here — null — rather than a guessed type.
+    doc_type: DocumentType | None = None
+    doc_type_confidence: float | None = None
 
 
 class Job(BaseModel):

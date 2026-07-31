@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { RetakePrompt } from "@/components/RetakePrompt";
+import { formatDocumentType } from "@/lib/documentType";
 import { getJob } from "@/services/api";
 import type { Job } from "@/types/job";
 
@@ -98,9 +99,18 @@ function renderState(state: ViewState) {
       return (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-              Extracted text
-            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
+                Extracted text
+              </h1>
+              {result?.doc_type && (
+                <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                  {formatDocumentType(result.doc_type)}
+                  {result.doc_type_confidence !== null &&
+                    ` · ${Math.round(result.doc_type_confidence * 100)}%`}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-500">
               {result?.filename} · {result?.page_count} page
               {result?.page_count === 1 ? "" : "s"} · {result?.word_count} words · avg confidence{" "}

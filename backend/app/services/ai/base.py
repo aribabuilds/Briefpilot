@@ -6,6 +6,7 @@ from app.schemas.ai import (
     SummarizationRequest,
     SummarizationResult,
 )
+from app.schemas.classification import ClassificationRequest, ClassificationResult
 
 
 class AIService(ABC):
@@ -16,3 +17,6 @@ class AIService(ABC):
 
     @abstractmethod
     async def summarize(self, request: SummarizationRequest) -> SummarizationResult: ...
+
+    @abstractmethod
+    async def classify_document(self, request: ClassificationRequest) -> ClassificationResult: ...

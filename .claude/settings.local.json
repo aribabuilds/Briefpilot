@@ -42,7 +42,19 @@
       "Bash(curl -s http://127.0.0.1:8000/health)",
       "Bash(curl -s -o /dev/null -w \"backend /health: %{http_code}\\\\n\" http://127.0.0.1:8000/health)",
       "Bash(curl -s -o /dev/null -w \"frontend :3000: %{http_code}\\\\n\" http://localhost:3000)",
-      "Bash(npm --prefix frontend run format:check)"
+      "Bash(npm --prefix frontend run format:check)",
+      "Bash(./lintenv/Scripts/python.exe -)",
+      "Bash(./lintenv/Scripts/python.exe -m pip install -q --disable-pip-version-check \"opencv-python-headless>=4.10,<5\" \"numpy>=2,<3\")",
+      "Bash(./lintenv/Scripts/python.exe -c \"import cv2, numpy; print\\('cv2', cv2.__version__, '| numpy', numpy.__version__\\)\")",
+      "Bash(git commit *)",
+      "Bash(\"C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/lintenv/Scripts/python.exe\" -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(\"C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/lintenv/Scripts/python.exe\" \"C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/verify_low_quality_server.py\")",
+      "Bash(curl -s \"https://api.github.com/repos/aribabuilds/Briefpilot/actions/runs/30441006534/jobs\")",
+      "Bash(C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/lintenv/Scripts/python.exe -c ' *)",
+      "Bash(curl -s https://api.github.com/repos/aribabuilds/Briefpilot/actions/runs/30441006534/jobs -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/jobs.json)",
+      "Bash(curl -sL -w '\\\\nHTTP_STATUS:%{http_code}\\\\n' https://api.github.com/repos/aribabuilds/Briefpilot/actions/jobs/90540037506/logs -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/backend_job.log)",
+      "Bash(./lintenv/Scripts/python.exe -c ' *)",
+      "Bash(pip show *)"
     ]
   }
 }
