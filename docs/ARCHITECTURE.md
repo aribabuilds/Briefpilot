@@ -38,18 +38,24 @@ a dependency the rest of the app codes against directly:
 app/services/ai/
 ├── base.py                      AIService — the abstract contract (extract_document, summarize)
 ├── factory.py                   build_ai_service(settings) / get_ai_service() — selects an adapter
+├── classification_parsing.py    Shared, pure LLM-response parser (no provider, no network)
+├── prompts/classify.py           Classification prompt (few-shot examples, not eval data)
 └── providers/
+    ├── gemini_service.py         GeminiService(AIService) — the default, free-tier provider
     ├── openai_service.py         OpenAIService(AIService)
     └── azure_openai_service.py   AzureOpenAIService(AIService)
 ```
 
 - **`AIService`** (`app/services/ai/base.py`) is an `ABC` defining the operations
-  the application needs — currently `extract_document` and `summarize` — in
-  terms of typed Pydantic DTOs from `app/schemas/ai.py`. Nothing outside
-  `services/ai/` may import a provider SDK directly.
-- **Adapters** (`OpenAIService`, `AzureOpenAIService`) implement `AIService`
-  against a specific provider SDK. Adding a new provider (Anthropic, Gemini,
-  ...) means adding one more adapter class here — nothing else changes.
+  the application needs — `extract_document`, `summarize`, and
+  `classify_document` — in terms of typed Pydantic DTOs from `app/schemas/ai.py`
+  and `app/schemas/classification.py`. Nothing outside `services/ai/` may
+  import a provider SDK directly.
+- **Adapters** (`GeminiService`, `OpenAIService`, `AzureOpenAIService`)
+  implement `AIService` against a specific provider SDK. `GeminiService` is
+  the default (free tier, per the zero-cost mandate — see ADR-0003). Adding a
+  new provider (Anthropic, a self-hosted Ollama model, ...) means adding one
+  more adapter class here — nothing else changes.
 - **`factory.get_ai_service`** reads `Settings.ai_provider` and constructs the
   matching adapter, cached as a singleton (mirrors `get_settings`). It is
   designed to be used as a FastAPI dependency — `Depends(get_ai_service)` —

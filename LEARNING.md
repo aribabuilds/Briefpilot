@@ -574,3 +574,85 @@ real image; the real one is the only proof the DoD claim is actually true.
 > **"Two things were technically 'known' for weeks and fixed by nobody — until we went looking on purpose."**
 Explain the difference between a problem being *mentioned* and a problem being *tracked*, using
 the `.gitattributes` fix (mentioned twice, fixed never — until a deliberate audit) as the example.
+
+---
+
+## M8 — Classification (first real LLM integration) *(done)*
+
+### Decisions log
+
+#### D19 — Response parsing is one shared, pure function across all three providers
+
+**What.** `classify_document` on `OpenAIService`, `AzureOpenAIService`, and the new `GeminiService`
+all call the same free function, `parse_classification_response(raw_text)` — none of them contain
+their own JSON-parsing or fallback logic. Each adapter's job is only: build the prompt, call its
+SDK, hand the raw text to the shared parser.
+
+**Why.** This is the OCR-normalization pattern (D8) applied to LLM output: the interesting,
+bug-prone logic (parsing, code-fence stripping, confidence clamping, the `other` fallback) lives
+in exactly one place, unit-tested with 10 cases and zero network calls. Without this split, three
+adapters would each need their own parsing tests, and a fix to one would not automatically fix
+the others — the exact kind of drift D3's "one tool, one config" reasoning warns against.
+
+**Interview angle.** *"You have three LLM providers. How do you keep their error handling
+consistent?"* Don't let each adapter own its own parsing — push everything provider-agnostic
+into a shared function the adapters merely call. The adapter's only job is the wire protocol.
+
+#### D20 — Classification is best-effort: it can fail without failing the job
+
+**What.** `JobService` calls the classifier only after the quality gate passes, and wraps the
+call in a broad `except Exception` that logs a warning and leaves `doc_type: null` — the job
+still reports `DONE`. A missing `GEMINI_API_KEY` (expected right now — no key has been obtained
+yet), a network error, or a provider outage all look the same to the user: no badge on the
+result, not a failure screen.
+
+**Why.** OCR succeeding is the job's actual contract; classification is an enhancement layered on
+top of it. Coupling the two would mean a temporarily-down LLM provider breaks uploads entirely,
+which is a much worse failure mode than "the letter type badge didn't show up this time." This
+is the same reasoning as D12 (OCR total-failure vs one-bad-page) inverted: there, isolating
+*too* broadly hid a real failure; here, isolating classification *at all* is correct because it
+is genuinely optional to the job's success.
+
+**What was rejected.** Blocking job completion on classification succeeding (i.e., a job stays
+`PROCESSING` until classification also finishes, or fails if it doesn't). Rejected because it
+would make the entire upload flow depend on an external LLM being reachable and paid-for/free-
+tier-available at every moment — a fragility with no upside, since M8 has no feature yet that
+*requires* a doc_type to function (extraction's dependency on it is M9+).
+
+**Interview angle.** *"When should a dependent feature's failure sink the whole request, versus
+degrade gracefully?"* Ask whether the feature is on the critical path of what the user actually
+asked for. Here, "read my letter" is the contract; "tell me what kind of letter it is" is an
+enhancement — so its failure mode is a null field, not a 500.
+
+#### D21 — `GEMINI_API_KEY` is a real, currently-unmet dependency — tracked, not hidden
+
+**What.** No Gemini key has been obtained yet. Classification will degrade to `null` on every
+real job until the owner adds one. This is recorded plainly in `PROGRESS.md`'s Known Deviations
+table rather than glossed over.
+
+**Why it matters enough to log.** Every previous "can't verify locally" gap in this project (no
+Tesseract, no Docker, no `make`) got the same treatment: named specifically, not folded into a
+vague "should work." A milestone that *looks* complete because the code compiles and unit tests
+pass, while its one real integration point has never actually been exercised end-to-end, is
+worth being honest about — especially on a project whose stated differentiator is honest
+failure analysis over polished claims.
+
+### Review questions
+
+1. **Read the code.** `_classify` in `job_service.py` calls `get_ai_service()` *inside* the
+   closure, not once outside it when `get_job_service()` is constructed. Why does that placement
+   matter for what happens when the app boots without a `GEMINI_API_KEY` set?
+2. **Design.** `JobService` depends on `ClassifierRunner = Callable[[str], ClassificationResult]`,
+   not on `AIService` directly. What would `JobService`'s tests look like if it depended on the
+   full `AIService` interface instead — what would every test have to additionally satisfy that
+   they don't today?
+3. **Practice.** `classify_document`'s prompt includes hand-written example letters (M8) while
+   `eval/golden/` (M6) refuses to contain any fabricated ones. Both are "example German letters
+   living in the repo" — what's the actual difference that makes one fine and the other a
+   principle violation?
+
+### Teach-back
+
+> **"The AI feature can go down without the product going down."**
+Explain why the job's success is defined by OCR succeeding, not by classification succeeding —
+and why that specific line (not some other line) is where the failure isolation boundary sits.

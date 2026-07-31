@@ -208,12 +208,17 @@ interface (`app/services/ai/base.py`) and resolves a concrete adapter through
 
 | Variable                    | Used when                  |
 |------------------------------|-----------------------------|
-| `AI_PROVIDER`                 | `openai` (default) or `azure_openai` |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | `AI_PROVIDER=openai`     |
-| `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` | `AI_PROVIDER=azure_openai` |
+| `AI_PROVIDER`                 | `gemini` (default — free tier), `openai`, or `azure_openai` |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | `AI_PROVIDER=gemini` — free key, no billing account: https://aistudio.google.com/apikey |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | `AI_PROVIDER=openai` (paid — opt-in only, per the zero-cost mandate) |
+| `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` | `AI_PROVIDER=azure_openai` (paid — opt-in only) |
 
-Adding a new provider (Anthropic, Gemini, ...) means adding one adapter class
-under `app/services/ai/providers/` and a branch in
+Without a `GEMINI_API_KEY` set, classification degrades gracefully: uploads,
+OCR, and the quality gate all work identically, the result's `doc_type` just
+stays `null` (null-not-guess — see ADR-0003) instead of the app failing to boot.
+
+Adding a new provider (Anthropic, a self-hosted Ollama model, ...) means adding
+one adapter class under `app/services/ai/providers/` and a branch in
 `app/services/ai/factory.py` — routers, services, and schemas that depend on
 `AIService` are untouched. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ai-provider-abstraction-dependency-inversion)

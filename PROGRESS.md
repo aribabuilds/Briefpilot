@@ -53,7 +53,7 @@ half of Sprint 1, not slippage.
 
 | M | Problem / user story | Status | Summary |
 |---|----------------------|--------|---------|
-| M8 | *As a user,* the app recognizes what kind of letter I uploaded (Finanzamt, Krankenkasse, Bußgeld…), so it applies the right handling. | todo | LLM classifier, few-shot per type, "other" fallback, eval vs labeled set |
+| M8 | *As a user,* the app recognizes what kind of letter I uploaded (Finanzamt, Krankenkasse, Bußgeld…), so it applies the right handling. | **done** | `classify_document` added to the `AIService` interface (all 3 adapters); new `GeminiService` (free tier) is now the **default** provider — resolves the paid-default deviation from M1. Response parsing is a pure, provider-shared function with an `other` fallback on any malformed output (never a guessed type). Wired into `JobService`: runs only after the quality gate passes, degrades to `doc_type: null` on any failure (no key, network, provider outage) without failing the job. ADR-0003. "Eval vs labeled set" deferred — still 0 golden letters, not fabricated. 77 tests pass locally |
 | M9 | *As a user,* the important parts of my letter are captured in a structured form — each field carrying its confidence and where it came from — so results are trustworthy and traceable. | todo | Pydantic schemas top-4 types + generic; `{value, confidence, source_span}` wrapper |
 | M10 | *As a user,* I see the sender, dates, deadlines, amounts and required actions pulled out of my letter, each linked back to the words it came from. | todo | End-to-end extraction, source-span linking, null-not-guess in prompt + parser |
 | M11 | *As a user,* I can trust the extracted dates/amounts/§-references because impossible values are caught and flagged, never silently shown as fact. | todo | Date/deadline/legal-ref/amount rules; failures downgrade + flag, never fix |
@@ -102,8 +102,8 @@ The execution plan assumes a funded project. `CLAUDE.md` §3 is a **hard rule** 
   provisioned or benchmarked (doing so would itself violate §3). The `OcrService` adapter is
   designed so a paid provider is a config/adapter swap later. **ADR-0002** records the decision
   and freezes the coordinate schema.
-- **M8+** — LLM must run on a **free tier** (e.g. Gemini Flash) behind the model-agnostic wrapper.
-  No paid API calls. See "Known deviations" below.
+- **M8+** — LLM must run on a **free tier**. **Resolved at M8**: `GeminiService` (Gemini Flash
+  free tier) is now the default `AI_PROVIDER`; OpenAI/Azure remain opt-in only. ADR-0003.
 - **M29** — no paid domain/DNS/VPS. Launch = public repo + video + reproducible local run.
 
 ## Known deviations & carried debt
@@ -111,8 +111,9 @@ The execution plan assumes a funded project. `CLAUDE.md` §3 is a **hard rule** 
 | Item | Impact | Where it gets resolved |
 |------|--------|------------------------|
 | ~~CI workflow triggers on `main`; repo branch is `master` — CI has never run~~ | **RESOLVED.** Branch renamed to `main` (D1); `ci.yml` needed no edit. First run failed (black + mypy in `core/logging.py`); fixed in `45a8b59`. **Run #3 green: Frontend 47s, Backend 31s** | M1 ✅ |
-| `AIService` ships only **OpenAI + Azure OpenAI** adapters — both paid | Violates §3 zero-cost mandate if used; built ahead of its milestone | Default flipped off paid in M1; free-tier adapter lands in M8 where the LLM is actually needed |
-| Wrapper is named `AIService`; CLAUDE.md §4 calls it `llm_client` | Naming drift vs. the spec | M8 (rename or ADR justifying the name) |
+| ~~`AIService` ships only **OpenAI + Azure OpenAI** adapters — both paid~~ | **RESOLVED.** `GeminiService` added; `AI_PROVIDER` now defaults to `gemini` (free tier). Paid providers are opt-in only | M8 ✅ (ADR-0003) |
+| ~~Wrapper is named `AIService`; CLAUDE.md §4 calls it `llm_client`~~ | **RESOLVED.** Kept `AIService`: by M8 it's a 3-operation, 3-provider capability interface, not a single-call client wrapper. ADR-0003 documents the reasoning | M8 ✅ (ADR-0003) |
+| `GEMINI_API_KEY` not yet obtained | Classification degrades to `doc_type: null` (null-not-guess) until a free key is added to `backend/.env` — get one at https://aistudio.google.com/apikey | Owner — no code change needed once added |
 | ~~No `pre-commit` hooks~~ | **RESOLVED.** `.pre-commit-config.yaml`, all hooks verified passing on the full tree | M1 ✅ |
 | ~~No `docs/adr/` directory~~ | **RESOLVED.** `docs/adr/` + index + ADR-0001 (local-first zero-cost strategy) | M1 ✅ |
 | ~~No `LEARNING.md`~~ | **RESOLVED.** M1 review with 4 decisions, 3 review questions, teach-back | M1 ✅ |

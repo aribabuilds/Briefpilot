@@ -12,6 +12,7 @@ constrain later milestones do.
 |---|-------|--------|-----------|
 | [0001](0001-local-first-zero-cost-demo-strategy.md) | Local-first, zero-cost demo strategy (no hosted deployment) | Accepted | M1 |
 | [0002](0002-ocr-and-coordinate-schema.md) | OCR engine (Tesseract) and the normalized coordinate schema | Accepted | M3 |
+| [0003](0003-free-tier-llm-default-and-aiservice-naming.md) | Free-tier LLM default (Gemini) and the `AIService` naming | Accepted | M8 |
 
 ## Planned
 
