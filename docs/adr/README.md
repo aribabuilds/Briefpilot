@@ -13,14 +13,13 @@ constrain later milestones do.
 | [0001](0001-local-first-zero-cost-demo-strategy.md) | Local-first, zero-cost demo strategy (no hosted deployment) | Accepted | M1 |
 | [0002](0002-ocr-and-coordinate-schema.md) | OCR engine (Tesseract) and the normalized coordinate schema | Accepted | M3 |
 | [0003](0003-free-tier-llm-default-and-aiservice-naming.md) | Free-tier LLM default (Gemini) and the `AIService` naming | Accepted | M8 |
+| [0004](0004-extraction-schema-one-schema-not-per-type.md) | Extraction contract: one common `LetterExtraction` schema, not per-type | Accepted | M9 |
 
 ## Planned
 
 The execution plan names four decisions that must not silently change later; each
 gets an ADR when it is actually made, not before:
 
-- **Per-type Pydantic schemas with `{value, confidence, source_span}`** (M9) — the
-  contract between pipeline and frontend.
 - **No-account / session model** (M22) — retrofitting privacy architecture is a rewrite.
 - **Eval harness format** (M12) — golden fixtures are an investment; churning their
   schema burns it.

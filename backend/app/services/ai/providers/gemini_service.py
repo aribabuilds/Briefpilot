@@ -1,21 +1,21 @@
 from google import genai
 from google.genai.types import GenerateContentConfig
 
-from app.schemas.ai import (
-    DocumentExtractionRequest,
-    DocumentExtractionResult,
-    SummarizationRequest,
-    SummarizationResult,
-)
+from app.schemas.ai import DocumentExtractionRequest, SummarizationRequest, SummarizationResult
 from app.schemas.classification import ClassificationRequest, ClassificationResult
+from app.schemas.extraction import LetterExtraction
 from app.services.ai.base import AIService
 from app.services.ai.classification_parsing import parse_classification_response
+from app.services.ai.extraction_parsing import parse_letter_extraction
 from app.services.ai.prompts.classify import (
     CLASSIFICATION_SYSTEM_INSTRUCTION,
     build_classification_user_message,
 )
+from app.services.ai.prompts.extract import (
+    EXTRACTION_SYSTEM_INSTRUCTION,
+    build_extraction_user_message,
+)
 
-_DEFAULT_EXTRACTION_INSTRUCTIONS = "Extract structured data from the document."
 _SUMMARIZATION_INSTRUCTIONS = "Summarize the following text."
 
 
@@ -30,16 +30,17 @@ class GeminiService(AIService):
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
-    async def extract_document(
-        self, request: DocumentExtractionRequest
-    ) -> DocumentExtractionResult:
+    async def extract_document(self, request: DocumentExtractionRequest) -> LetterExtraction:
         config = GenerateContentConfig(
-            system_instruction=request.instructions or _DEFAULT_EXTRACTION_INSTRUCTIONS,
+            system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
+            response_mime_type="application/json",
         )
         response = await self._client.aio.models.generate_content(
-            model=self._model, contents=request.content, config=config
+            model=self._model,
+            contents=build_extraction_user_message(request.content),
+            config=config,
         )
-        return DocumentExtractionResult(extracted_data={}, raw_response=response.text or "")
+        return parse_letter_extraction(response.text or "")
 
     async def summarize(self, request: SummarizationRequest) -> SummarizationResult:
         config = GenerateContentConfig(

@@ -1,20 +1,20 @@
 from openai import AsyncOpenAI
 
-from app.schemas.ai import (
-    DocumentExtractionRequest,
-    DocumentExtractionResult,
-    SummarizationRequest,
-    SummarizationResult,
-)
+from app.schemas.ai import DocumentExtractionRequest, SummarizationRequest, SummarizationResult
 from app.schemas.classification import ClassificationRequest, ClassificationResult
+from app.schemas.extraction import LetterExtraction
 from app.services.ai.base import AIService
 from app.services.ai.classification_parsing import parse_classification_response
+from app.services.ai.extraction_parsing import parse_letter_extraction
 from app.services.ai.prompts.classify import (
     CLASSIFICATION_SYSTEM_INSTRUCTION,
     build_classification_user_message,
 )
+from app.services.ai.prompts.extract import (
+    EXTRACTION_SYSTEM_INSTRUCTION,
+    build_extraction_user_message,
+)
 
-_DEFAULT_EXTRACTION_INSTRUCTIONS = "Extract structured data from the document."
 _SUMMARIZATION_INSTRUCTIONS = "Summarize the following text."
 
 
@@ -23,21 +23,15 @@ class OpenAIService(AIService):
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
 
-    async def extract_document(
-        self, request: DocumentExtractionRequest
-    ) -> DocumentExtractionResult:
+    async def extract_document(self, request: DocumentExtractionRequest) -> LetterExtraction:
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=[
-                {
-                    "role": "system",
-                    "content": request.instructions or _DEFAULT_EXTRACTION_INSTRUCTIONS,
-                },
-                {"role": "user", "content": request.content},
+                {"role": "system", "content": EXTRACTION_SYSTEM_INSTRUCTION},
+                {"role": "user", "content": build_extraction_user_message(request.content)},
             ],
         )
-        raw_response = response.choices[0].message.content or ""
-        return DocumentExtractionResult(extracted_data={}, raw_response=raw_response)
+        return parse_letter_extraction(response.choices[0].message.content or "")
 
     async def summarize(self, request: SummarizationRequest) -> SummarizationResult:
         response = await self._client.chat.completions.create(

@@ -656,3 +656,82 @@ failure analysis over polished claims.
 > **"The AI feature can go down without the product going down."**
 Explain why the job's success is defined by OCR succeeding, not by classification succeeding —
 and why that specific line (not some other line) is where the failure isolation boundary sits.
+
+---
+
+## M9 — Extraction schemas (the frozen contract) *(done)*
+
+### Decisions log
+
+#### D22 — One common schema across all 8 letter types, not the plan's literal "top-4 + generic"
+
+**What.** The execution plan's Day-9 text says "Pydantic schemas for top-4 types + generic" —
+up to 5 distinct shapes. Built one instead: `LetterExtraction`, used identically for every
+letter type, with `doc_type` deliberately excluded (it already lives on `JobResult` from M8's
+classification, not duplicated here).
+
+**Why.** `CLAUDE.md` §1 already defines a single field list — sender, dates, deadlines, amounts,
+required actions, legal references — as the extraction target for *every* letter type. Building
+4 bespoke schemas now would mean guessing which fields each type needs differently, with zero
+golden letters to check the guess against. This is the same discipline as M6's refusal to
+fabricate golden letters and M9's own "eval vs labeled set" deferral, applied to schema design
+instead of test data: don't manufacture structure from imagination when real data could inform
+it later. If real letters eventually show `bussgeld` genuinely needs a field `krankenkasse`
+never has, that's a new ADR superseding this one — evidence-based, not guessed.
+
+**Interview angle.** *"The spec said 4 schemas. Why did you build 1?"* Following a spec literally
+when the spec's own higher-level document (`CLAUDE.md` §1) already implies something simpler is
+not deference, it's carrying forward an inconsistency. State the conflict, pick the option
+backed by more evidence (here: an explicit product-level field list vs. an arbitrary "top-4"
+split with no criteria given for which 4), and write down why.
+
+#### D23 — `source_span` embeds `BBox`es directly; never an index into the OCR document
+
+**What.** `SourceSpan` is `{page: int, bboxes: list[BBox]}` — the actual frozen M3 bounding boxes
+copied in, not indices into `OcrDocument.words` that the reader would have to resolve later.
+
+**Why.** An index-based design would make every `ExtractedField` meaningless without also having
+the exact `OcrDocument` it was computed against in hand — two objects that must always travel
+together, with no way to enforce that pairing at the type level. Embedding the geometry directly
+makes `ExtractedField` self-contained: the M18 overlay can render a highlight from the field
+alone. This is the same reasoning that shaped `BBox` itself at M3 (ADR-0002) — resolve
+coordinates to something the consumer can use standalone, not something requiring a second
+lookup elsewhere.
+
+**Interview angle.** *"Why duplicate the bounding box data instead of referencing it?"* Because
+the two objects (`ExtractedField`, `OcrDocument`) would otherwise need to be threaded through
+the same call chain forever to stay meaningful together — a form of the same coupling problem
+dependency injection solves for services, applied to data instead of behavior.
+
+#### D24 — Adopted Python 3.12+ native generics after checking they'd actually work
+
+**What.** `ExtractedField[T]` uses PEP 695 syntax (`class ExtractedField[T](BaseModel)`), not the
+classic `TypeVar` + `Generic[T]` pattern. Before committing to it, verified it against the
+actually-installed Pydantic (2.13.4) rather than assuming — and, finding the project's pinned
+floor (`pydantic>=2.9`) predates that support landing (~2.11), raised the floor to `>=2.11` so a
+fresh `pip install` anywhere can't land on a version where this silently breaks.
+
+**Why it matters.** This is the same instinct as M4's deskew prototype (D9): don't trust that a
+plausible-looking feature works — check it against the real, installed version before writing
+five files that depend on it. The gap here wasn't a bug, just an unverified assumption (a
+version *range* includes versions that were never actually tested) that would have surfaced
+later, in someone else's environment, as a confusing import-time error.
+
+### Review questions
+
+1. **Read the code.** `_field`'s `coerce` parameter returns `T | None`, and `_field` unconditionally
+   sets confidence to `0.0` whenever the coerced value is `None` — even if the LLM reported a high
+   confidence for that field. Why is overriding the LLM's own confidence number correct here?
+2. **Design.** `LetterExtraction` has no `doc_type` field, even though a "type of letter" feels
+   like exactly the kind of thing extraction would report. Why does it live on `JobResult`
+   (M8) instead — and what would break if it were duplicated in both places?
+3. **Practice.** `parse_letter_extraction` never raises, converting every failure mode into a
+   null field. Contrast this with `document_pipeline.build_document`, which *does* raise
+   (`DocumentOcrError`) when every OCR page fails (M5, D12). Why is total-failure-should-raise
+   correct for OCR but total-failure-should-degrade correct for extraction parsing?
+
+### Teach-back
+
+> **"We built one schema instead of the four the plan asked for — because we had zero data to tell us the four should differ."**
+Explain the difference between following a written plan and understanding what the plan was
+trying to achieve, using this decision as the example.
