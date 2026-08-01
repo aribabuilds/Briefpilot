@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ExtractionSummary } from "@/components/ExtractionSummary";
 import { RetakePrompt } from "@/components/RetakePrompt";
 import { formatDocumentType } from "@/lib/documentType";
 import { getJob } from "@/services/api";
@@ -117,12 +118,13 @@ function renderState(state: ViewState) {
               {result ? Math.round(result.mean_confidence * 100) : 0}%
             </p>
           </div>
+          {result?.extraction && <ExtractionSummary extraction={result.extraction} />}
           <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
             {result?.text || "(no text found)"}
           </pre>
           <p className="text-xs text-neutral-400 dark:text-neutral-600">
-            This is the raw OCR text. Structured extraction and a plain-English explanation come
-            next.
+            This is the raw OCR text behind the fields above. A plain-English explanation of the
+            letter comes next.
           </p>
         </div>
       );

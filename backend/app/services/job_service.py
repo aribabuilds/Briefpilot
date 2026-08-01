@@ -10,21 +10,26 @@ import structlog
 
 from app.config.settings import get_settings
 from app.repositories.job_repository import InMemoryJobRepository, JobRepository
+from app.schemas.ai import DocumentExtractionRequest
 from app.schemas.classification import ClassificationRequest, ClassificationResult
+from app.schemas.extraction import LetterExtraction
 from app.schemas.job import Job, JobResult, JobStatus
 from app.schemas.ocr import OcrDocument
 from app.services.ai import get_ai_service
 from app.services.document_pipeline import build_document
 from app.services.ocr import TesseractOcrService
 from app.services.quality import assess_quality
+from app.services.source_span_linking import link_source_spans
 
 logger = structlog.get_logger(__name__)
 
 # The pipeline reduced to what the job layer needs: bytes + content type -> document.
 DocumentRunner = Callable[[bytes, str], OcrDocument]
-# Likewise reduced for classification: text in, a result out. JobService never
-# imports AIService or knows an LLM is involved — same seam as DocumentRunner.
+# Likewise reduced for classification and extraction: text in, a result out.
+# JobService never imports AIService or knows an LLM is involved — same seam
+# as DocumentRunner.
 ClassifierRunner = Callable[[str], ClassificationResult]
+ExtractorRunner = Callable[[str], LetterExtraction]
 
 
 class Executor(Protocol):
@@ -52,6 +57,7 @@ class JobService:
         min_mean_confidence: float,
         min_word_count: int,
         classifier: ClassifierRunner | None = None,
+        extractor: ExtractorRunner | None = None,
     ) -> None:
         self._repository = repository
         self._runner = runner
@@ -59,6 +65,7 @@ class JobService:
         self._min_mean_confidence = min_mean_confidence
         self._min_word_count = min_word_count
         self._classifier = classifier
+        self._extractor = extractor
 
     def create_job(self, *, filename: str, content: bytes, content_type: str) -> Job:
         job = Job(
@@ -109,6 +116,19 @@ class JobService:
             except Exception:  # noqa: BLE001 - best-effort; never fail the job over this
                 logger.warning("classification_failed", job_id=job_id, exc_info=True)
 
+        # Extraction is likewise best-effort and independent of classification:
+        # a letter can fail to classify but still have extractable fields, or
+        # vice versa. Source-span linking runs against the real OcrDocument
+        # already in scope here, filling in what the AI call alone can't
+        # honestly claim (M9: adapters only see flattened text, never bboxes).
+        if self._extractor is not None:
+            try:
+                extraction = self._extractor(document.text)
+                linked = link_source_spans(extraction, document)
+                result = result.model_copy(update={"extraction": linked})
+            except Exception:  # noqa: BLE001 - best-effort; never fail the job over this
+                logger.warning("extraction_failed", job_id=job_id, exc_info=True)
+
         self._update(job_id, status=JobStatus.DONE, result=result)
 
     def _update(
@@ -148,6 +168,13 @@ def _classify(text: str) -> ClassificationResult:
     return asyncio.run(ai_service.classify_document(ClassificationRequest(content=text)))
 
 
+def _extract(text: str) -> LetterExtraction:
+    # Same lazy get_ai_service() call as _classify -- deferred to per-job, not
+    # app startup.
+    ai_service = get_ai_service()
+    return asyncio.run(ai_service.extract_document(DocumentExtractionRequest(content=text)))
+
+
 @lru_cache
 def get_job_service() -> JobService:
     settings = get_settings()
@@ -176,4 +203,5 @@ def get_job_service() -> JobService:
         min_mean_confidence=settings.min_mean_confidence,
         min_word_count=settings.min_word_count,
         classifier=_classify,
+        extractor=_extract,
     )

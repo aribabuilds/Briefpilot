@@ -735,3 +735,93 @@ later, in someone else's environment, as a confusing import-time error.
 > **"We built one schema instead of the four the plan asked for — because we had zero data to tell us the four should differ."**
 Explain the difference between following a written plan and understanding what the plan was
 trying to achieve, using this decision as the example.
+
+---
+
+## M10 — Extraction v1: live, with provenance *(done)*
+
+### Decisions log
+
+#### D25 — Source-span linking is its own pure module, not folded into the AI adapters
+
+**What.** `link_source_spans(extraction, document)` lives in `services/source_span_linking.py`,
+called by `JobService` *after* the AI adapter returns — the adapters (M9) never see an
+`OcrDocument`, only flattened text. Matching splits further into candidate generators (what
+surface forms could this value take in German?) and `find_source_span` (one simple word-window
+search), each independently unit-tested with zero network and zero Tesseract calls.
+
+**Why.** An LLM extracting "01.03.2026" as a `date` object has no reliable way to also report
+*which pixels* that came from — it never saw pixels, only OCR's flattened text. Provenance has
+to be computed after the fact, by a component that holds both the extracted value and the real
+`OcrDocument` simultaneously. Keeping this pure and separate is the same discipline as OCR
+normalization (D8) and classification/extraction parsing (D19, M9): the riskiest logic in the
+codebase — matching, in this case — gets to be the most exhaustively tested, because nothing
+about it depends on a live service.
+
+**Interview angle.** *"Why not have the LLM return bounding boxes directly?"* Because it never
+had access to word coordinates — asking it to would mean either feeding it raw OCR geometry
+(expensive, unreliable) or trusting a fabricated answer. Compute provenance from what you
+actually know, downstream of the model, not by asking the model to guess at data it never saw.
+
+#### D26 — An unlinkable value gets its confidence *capped*, never zeroed and never left alone
+
+**What.** When `find_source_span` can't match a field's value to any OCR word window, the field
+keeps its value (it may still be correct) but its confidence is capped at `0.4` — never raised
+above what the model originally reported, never dropped to `0.0` either.
+
+**Why the cap, not zero.** Zeroing would claim "this is definitely wrong," which isn't true — the
+model may have paraphrased or the letter may state it in a form the candidate generators don't
+yet cover. Zero overclaims certainty in the other direction.
+
+**Why the cap, not silence (leaving confidence untouched).** This is the actual design tension:
+leaving a 0.9-confidence unlinked value at 0.9 would make an *ungrounded* claim look exactly as
+trustworthy as a *verified* one, in a product whose entire differentiator is "click a field, see
+it highlighted in your real letter." `CLAUDE.md` §5.2 already establishes the pattern for
+deterministic validators — failures downgrade confidence and flag, they never silently pass —
+and this extends that same rule to a new failure mode: "we could not verify this," not just
+"this looks internally inconsistent."
+
+**Interview angle.** *"Why 0.4 specifically, why not some other number?"* Honestly: a placeholder,
+labeled as one, pending real-data tuning once golden letters exist (M13's decision point) — the
+same posture as the OCR quality thresholds (M6). What matters for the interview answer isn't the
+number, it's the *shape* of the rule: capped below whatever "trustworthy" means elsewhere in the
+system, computed once, and never silently skipped.
+
+#### D27 — List fields link to their first item only — a documented simplification, not silently dropped
+
+**What.** `legal_references` and `required_actions` are `list[str]`, but `SourceSpan` is one
+object per field, not one per list item. `_link_list` matches only `field.value[0]` and leaves
+the rest of the list un-linked (the field's *value* still contains every item — only the *span*
+covers the first).
+
+**Why.** The alternative — a `SourceSpan` per list item — would mean changing `ExtractedField`'s
+shape mid-freeze (ADR-0004 froze this schema at M9), for a case (multi-item lists on a single
+letter) that has zero golden-letter evidence yet to justify the added complexity. Rather than
+silently picking one behavior and letting a future reader guess why, it's named directly in the
+code and here: a known, deliberate boundary, not an oversight.
+
+**Interview angle.** *"Your list-field linking looks incomplete — first item only?"* Yes, on
+purpose: it's the honest scope line between "ship the common case now" and "redesign a frozen
+schema on a guess." Naming the limitation explicitly is the difference between technical debt and
+technical debt no one on the team knows exists.
+
+### Review questions
+
+1. **Read the code.** `_link_scalar`'s `candidates_fn` parameter is `Callable[[T], list[str]]` —
+   generic over the field's value type. Why does `sender` pass `lambda v: [v]` instead of a named
+   function like `date_candidates`, and what would break (or not) if `str` fields also needed
+   multiple candidate spellings?
+2. **Design.** `find_source_span` tries window sizes from 1 up to 6 words, in ascending order, for
+   every page before moving to the next. Construct a scenario (a real one, not contrived) where
+   this ordering could return a *wrong* match instead of the intended one — and say whether that's
+   actually a realistic risk given how candidates are generated today.
+3. **Practice.** `UNVERIFIED_CONFIDENCE_CAP` is a module-level constant, not a `Settings` field
+   like `min_mean_confidence`/`min_word_count` (M6). Why might that be the wrong call, and what
+   would you check before deciding whether to promote it to a configurable setting?
+
+### Teach-back
+
+> **"An extracted value we can't verify keeps its answer, but loses its authority."**
+Explain the difference between "wrong" (confidence 0), "right but unproven" (confidence capped),
+and "verified" (confidence as reported, span attached) — and why collapsing any two of these
+three states into one would break the trust story the source-highlight overlay is being built to tell.

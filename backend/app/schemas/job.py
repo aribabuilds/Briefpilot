@@ -4,6 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 from app.schemas.classification import DocumentType
+from app.schemas.extraction import LetterExtraction
 
 
 class JobStatus(StrEnum):
@@ -29,6 +30,9 @@ class JobResult(BaseModel):
     # both look the same here — null — rather than a guessed type.
     doc_type: DocumentType | None = None
     doc_type_confidence: float | None = None
+    # Null-not-guess (M10): extraction is best-effort and independent of
+    # classification -- either can succeed or fail on its own.
+    extraction: LetterExtraction | None = None
 
 
 class Job(BaseModel):

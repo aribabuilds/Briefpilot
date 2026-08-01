@@ -7,9 +7,10 @@ from app.config.settings import Settings, get_settings
 from app.main import app
 from app.repositories.job_repository import InMemoryJobRepository
 from app.schemas.classification import ClassificationResult, DocumentType
+from app.schemas.extraction import ExtractedField, LetterExtraction
 from app.schemas.job import JobStatus
 from app.schemas.ocr import BBox, OcrDocument, OcrPage, OcrWord
-from app.services.job_service import ClassifierRunner, JobService, get_job_service
+from app.services.job_service import ClassifierRunner, ExtractorRunner, JobService, get_job_service
 
 PDF = ("letter.pdf", b"%PDF-1.4 fake", "application/pdf")
 
@@ -36,6 +37,7 @@ def _service_with(
     runner: Callable[[bytes, str], OcrDocument],
     *,
     classifier: ClassifierRunner | None = None,
+    extractor: ExtractorRunner | None = None,
 ) -> JobService:
     return JobService(
         InMemoryJobRepository(),
@@ -44,6 +46,18 @@ def _service_with(
         min_mean_confidence=0.5,
         min_word_count=5,
         classifier=classifier,
+        extractor=extractor,
+    )
+
+
+def _empty_extraction() -> LetterExtraction:
+    return LetterExtraction(
+        sender=ExtractedField(value=None, confidence=0.0),
+        letter_date=ExtractedField(value=None, confidence=0.0),
+        deadline=ExtractedField(value=None, confidence=0.0),
+        amount=ExtractedField(value=None, confidence=0.0),
+        legal_references=ExtractedField(value=None, confidence=0.0),
+        required_actions=ExtractedField(value=None, confidence=0.0),
     )
 
 
@@ -150,6 +164,113 @@ def test_classification_is_skipped_for_low_quality_documents(client: TestClient)
     body = client.get(f"/api/v1/jobs/{job_id}").json()
     assert body["status"] == JobStatus.LOW_QUALITY.value
     assert calls == []  # garbled OCR text is never sent to the classifier
+
+
+# --- extraction wiring (M10) -----------------------------------------------
+
+
+def test_successful_extraction_populates_result(client: TestClient) -> None:
+    def extract(text: str) -> LetterExtraction:
+        extraction = _empty_extraction()
+        return extraction.model_copy(
+            update={"sender": ExtractedField(value="Finanzamt Muenchen", confidence=0.9)}
+        )
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), extractor=extract))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["extraction"]["sender"]["value"] == "Finanzamt Muenchen"
+
+
+def test_extraction_links_source_spans_against_the_real_ocr_document(client: TestClient) -> None:
+    # The OCR document's words literally contain "Finanzamt" -- JobService
+    # must call link_source_spans with that same document, not just store the
+    # AI adapter's raw (always source_span=None) result untouched.
+    def extract(text: str) -> LetterExtraction:
+        extraction = _empty_extraction()
+        return extraction.model_copy(
+            update={"sender": ExtractedField(value="Finanzamt", confidence=0.9)}
+        )
+
+    _override_service(
+        _service_with(lambda content, ct: _document("Finanzamt", words=5), extractor=extract)
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    sender = body["result"]["extraction"]["sender"]
+    assert sender["source_span"] is not None
+    assert sender["confidence"] == pytest.approx(0.9)  # verified, not capped
+
+
+def test_extractor_failure_leaves_extraction_null_but_job_still_done(client: TestClient) -> None:
+    def boom(text: str) -> LetterExtraction:
+        raise RuntimeError("GEMINI_API_KEY must be set when AI_PROVIDER=gemini.")
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), extractor=boom))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["extraction"] is None
+    assert body["result"]["text"]  # OCR output is unaffected
+
+
+def test_no_extractor_configured_leaves_extraction_null(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), extractor=None))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["extraction"] is None
+
+
+def test_extraction_is_skipped_for_low_quality_documents(client: TestClient) -> None:
+    calls: list[str] = []
+
+    def extract(text: str) -> LetterExtraction:
+        calls.append(text)
+        return _empty_extraction()
+
+    _override_service(
+        _service_with(
+            lambda content, ct: _document("blur", words=10, confidence=0.2),
+            extractor=extract,
+        )
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.LOW_QUALITY.value
+    assert calls == []  # garbled OCR text is never sent to extraction either
+
+
+def test_classification_and_extraction_are_independent(client: TestClient) -> None:
+    # Classification fails, extraction succeeds -- neither should affect the other.
+    def boom_classify(text: str) -> ClassificationResult:
+        raise RuntimeError("classifier down")
+
+    def extract(text: str) -> LetterExtraction:
+        extraction = _empty_extraction()
+        return extraction.model_copy(
+            update={"sender": ExtractedField(value="Finanzamt", confidence=0.9)}
+        )
+
+    _override_service(
+        _service_with(
+            lambda content, ct: _document("Finanzamt"),
+            classifier=boom_classify,
+            extractor=extract,
+        )
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["doc_type"] is None  # classification failed
+    assert body["result"]["extraction"]["sender"]["value"] == "Finanzamt"  # extraction still ran
 
 
 def test_low_confidence_document_is_marked_low_quality(client: TestClient) -> None:
