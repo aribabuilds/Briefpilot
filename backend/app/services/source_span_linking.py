@@ -115,7 +115,16 @@ def find_source_span(
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"[.,;:]+$", "", text.strip().lower())
+    # Strips trailing sentence punctuation, then removes ALL whitespace --
+    # not just outer whitespace. OCR sometimes splits a dotted date or a
+    # comma-decimal amount into extra tokens with a spurious space around
+    # punctuation ("31 . 03 . 2026" instead of "31.03.2026"), especially at
+    # the modest resolution a synthetic test fixture renders at. Comparing on
+    # characters alone -- applied identically to both sides -- is robust to
+    # how OCR chose to tokenize something without changing what counts as a
+    # match semantically.
+    stripped = re.sub(r"[.,;:]+$", "", text.strip().lower())
+    return re.sub(r"\s+", "", stripped)
 
 
 def link_source_spans(extraction: LetterExtraction, document: OcrDocument) -> LetterExtraction:

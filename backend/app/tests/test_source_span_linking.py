@@ -87,6 +87,27 @@ def test_find_source_span_strips_trailing_punctuation() -> None:
     assert find_source_span(["31.03.2026"], words) is not None
 
 
+def test_find_source_span_tolerates_ocr_splitting_a_dotted_date_into_extra_tokens() -> None:
+    # A real Tesseract quirk on tightly-spaced punctuation: "31.03.2026"
+    # sometimes comes back as several tokens with spurious spaces around the
+    # dots. Matching must not depend on OCR's tokenization choice.
+    words = [
+        _word("31", index=0),
+        _word(".", index=1),
+        _word("03", index=2),
+        _word(".", index=3),
+        _word("2026", index=4),
+    ]
+    span = find_source_span(["31.03.2026"], words)
+    assert span is not None
+    assert len(span.bboxes) == 5
+
+
+def test_find_source_span_tolerates_ocr_splitting_a_comma_amount() -> None:
+    words = [_word("250", index=0), _word(",", index=1), _word("00", index=2)]
+    assert find_source_span(["250,00"], words) is not None
+
+
 def test_find_source_span_does_not_cross_page_boundaries() -> None:
     words = [_word("Finanzamt", page=0, index=0), _word("Musterstadt", page=1, index=0)]
     assert find_source_span(["Finanzamt Musterstadt"], words) is None
