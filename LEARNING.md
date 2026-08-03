@@ -825,3 +825,54 @@ technical debt no one on the team knows exists.
 Explain the difference between "wrong" (confidence 0), "right but unproven" (confidence capped),
 and "verified" (confidence as reported, span attached) — and why collapsing any two of these
 three states into one would break the trust story the source-highlight overlay is being built to tell.
+
+### Post-merge fix: three CI failures misdiagnosed as digit-OCR uncertainty — the real bug was the test harness
+
+**What happened.** `2571e9d` (M10's commit) failed CI. Two follow-up fixes targeted plausible
+OCR-content problems (comma/currency candidate formatting, then OCR token-splitting whitespace);
+a third made the test's assertions deliberately tolerant of imperfect digit recognition. All
+three were reasoned from real, legitimate concerns — but all three were wrong, because none of
+them was the actual failure.
+
+The real error, once the log was actually read: `KeyError: 'status'` on a **404** from the `GET`
+that immediately followed a **201** `POST` in the same test. `app.dependency_overrides[get_job_service]
+= _real_ocr_service_with_fake_extractor` assigned the *factory function* as the override, not a
+constructed instance. FastAPI calls an override fresh on every dependency resolution — so the
+`POST` created a job in one `InMemoryJobRepository()`, and the following `GET` resolved a
+brand-new, empty one. The job was never "hard to find" in real OCR output; it was **never in the
+same repository as the request that looked for it.** Every other test in this file and in
+`test_jobs.py` already gets this right (construct once, close over the instance in a lambda) —
+this one test skipped that step.
+
+**Why it matters more than the bug.** Three fix attempts were all aimed at the newest, most
+complex, most "interesting" code in the change (the OCR-matching logic M10 actually introduced)
+— because that's where a bug felt likely to be. The actual fault was in the oldest, simplest
+pattern in the file, one line, copy-pasted incorrectly from code that has worked since M6. **The
+instinct to suspect the complicated new thing before checking the simple scaffolding around it
+is exactly backwards, and it cost three CI cycles.** The fix was available from the very first
+failure — `KeyError: 'status'` on a 404 has nothing to do with digit recognition — but blind
+guessing without reading the actual error meant three plausible-sounding wrong theories got
+tested before the real one was even considered.
+
+**What actually stopped the guessing.** Not a fourth theory — reading the real pytest output.
+GitHub's Checks/annotations API exposes no structured per-test failure message without
+repo-admin log access (confirmed twice this session), so the only paths were: install Tesseract
+locally (blocked here — chocolatey needs elevation this shell doesn't have) or ask the owner to
+copy the log from the browser. The second one, which should have been reached for immediately
+after the *first* failed guess, not the third.
+
+**Interview angle.** *"You spent three iterations on the wrong fix. What would you do differently
+starting over?"* Read the actual error before forming a second hypothesis, let alone a third.
+A blind fix is a bet; the payout for actually looking at the failure is almost always cheaper
+than the cost of another guess-and-CI-cycle. And: when a new test fails, check the test's own
+plumbing (fixtures, overrides, state sharing) before assuming the bug lives in the feature code
+the test was written to exercise — simple scaffolding mistakes are more common, and cheaper to
+rule out, than a fault in genuinely novel logic.
+
+**What was reverted vs. kept.** The tokenization-whitespace normalization fix (`_normalize`
+stripping all whitespace, not just outer) is a real, independently-good improvement — kept, and
+still covered by its own unit tests. The relaxed e2e assertions (sender must link; only one of
+three digit fields must) are also kept: digit-level OCR fidelity on a synthetic bitmap render is
+still a genuinely untested variable, now that the test can actually reach that code path for the
+first time — honesty about that uncertainty is warranted regardless of what caused this
+particular failure.

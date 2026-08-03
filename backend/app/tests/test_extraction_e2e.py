@@ -124,7 +124,16 @@ def _poll_until_terminal(
 
 
 def test_source_span_linking_finds_real_bboxes_in_real_ocr_output() -> None:
-    app.dependency_overrides[get_job_service] = _real_ocr_service_with_fake_extractor
+    # Construct the service ONCE and close over that same instance -- every
+    # other test in this codebase does this (see test_jobs.py::_service_with,
+    # the manual verification scripts). Assigning the factory FUNCTION itself
+    # as the override, as this test originally did, means FastAPI calls it
+    # fresh per request: POST creates a job in one InMemoryJobRepository, the
+    # following GET resolves a brand-new, empty one -- a 404 with no
+    # relationship whatsoever to OCR content. This was the actual cause of
+    # three straight CI failures wrongly attributed to digit-OCR fidelity.
+    service = _real_ocr_service_with_fake_extractor()
+    app.dependency_overrides[get_job_service] = lambda: service
     try:
         client = TestClient(app)
         created = client.post(
