@@ -13,22 +13,17 @@ instinct as the OCR quality gate (M6) and the extraction contract's
 know" beats a plausible-looking wrong answer.
 """
 
-import json
-import re
-
 from app.schemas.classification import ClassificationResult, DocumentType
-
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
+from app.services.ai.json_parsing import extract_json_value
 
 _UNKNOWN_RESULT = ClassificationResult(doc_type=DocumentType.OTHER, confidence=0.0)
 
 
 def parse_classification_response(raw_text: str) -> ClassificationResult:
-    cleaned = _CODE_FENCE_RE.sub("", raw_text).strip()
+    data = extract_json_value(raw_text)
     try:
-        data = json.loads(cleaned)
-        doc_type = DocumentType(str(data["doc_type"]).strip().lower())
-        confidence = max(0.0, min(1.0, float(data["confidence"])))
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+        doc_type = DocumentType(str(data["doc_type"]).strip().lower())  # type: ignore[index]
+        confidence = max(0.0, min(1.0, float(data["confidence"])))  # type: ignore[index]
+    except (KeyError, ValueError, TypeError):
         return _UNKNOWN_RESULT
     return ClassificationResult(doc_type=doc_type, confidence=confidence)

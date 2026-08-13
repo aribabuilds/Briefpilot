@@ -2,19 +2,38 @@
 -> Tesseract) through the actual JobService and background worker, and the polled
 job returns the extracted text. Needs the Tesseract binary, so it is skipped
 where absent but runs — and must not silently skip — in CI (LEARNING.md D2).
+
+Deliberately overrides get_job_service with classifier=None, extractor=None
+(real OCR, no AI calls) rather than using the raw app + get_job_service()
+default. This test predates classification (M8) and extraction (M9/M10),
+which get_job_service()'s factory now wires in unconditionally whenever an
+AI_PROVIDER/API key happens to be configured -- invisible for most of this
+project's life because no key existed, but once one is added locally this
+test would otherwise make real, slow, occasionally-503-flaky network calls
+to score something (OCR pipeline mechanics) that has nothing to do with
+classification or extraction. Same "override, don't depend on ambient
+config" discipline as test_jobs.py and test_extraction_e2e.py.
 """
 
 import io
 import os
 import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 import pytesseract
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from app.config.settings import get_settings
 from app.main import app
+from app.repositories.job_repository import InMemoryJobRepository
 from app.schemas.job import JobStatus
+from app.schemas.ocr import OcrDocument
+from app.services.document_pipeline import build_document
+from app.services.job_service import JobService, get_job_service
+from app.services.ocr import TesseractOcrService
 
 
 def _tesseract_available() -> bool:
@@ -83,8 +102,44 @@ def _poll_until_terminal(
     raise AssertionError("job did not finish within the timeout")
 
 
-def test_upload_runs_real_ocr_and_returns_text() -> None:
-    client = TestClient(app)
+def _real_ocr_only_service() -> JobService:
+    settings = get_settings()
+    ocr = TesseractOcrService(language=settings.ocr_language, timeout=settings.ocr_timeout_seconds)
+
+    def runner(content: bytes, content_type: str) -> OcrDocument:
+        return build_document(
+            content,
+            content_type,
+            ocr=ocr,
+            max_pages=settings.max_document_pages,
+            render_scale=settings.ocr_render_scale,
+            preprocess_enabled=settings.preprocess_enabled,
+            deskew_max_angle=settings.deskew_max_angle,
+            max_dimension=settings.preprocess_max_dimension,
+        )
+
+    return JobService(
+        InMemoryJobRepository(),
+        runner,
+        ThreadPoolExecutor(max_workers=settings.ocr_worker_threads, thread_name_prefix="ocr-test"),
+        min_mean_confidence=settings.min_mean_confidence,
+        min_word_count=settings.min_word_count,
+        classifier=None,
+        extractor=None,
+    )
+
+
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    service = _real_ocr_only_service()
+    app.dependency_overrides[get_job_service] = lambda: service
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_job_service, None)
+
+
+def test_upload_runs_real_ocr_and_returns_text(client: TestClient) -> None:
     created = client.post(
         "/api/v1/jobs",
         files={"file": ("letter.pdf", _letter_pdf(), "application/pdf")},
@@ -99,11 +154,10 @@ def test_upload_runs_real_ocr_and_returns_text() -> None:
     assert int(result["word_count"]) >= 1
 
 
-def test_deliberately_bad_photo_is_marked_low_quality() -> None:
+def test_deliberately_bad_photo_is_marked_low_quality(client: TestClient) -> None:
     # Sprint-1's own Definition of Done: "quality gate triggers on a
     # deliberately bad photo" -- proven here against the real pipeline, not a
     # synthetic confidence dict (that's test_quality.py's job).
-    client = TestClient(app)
     created = client.post(
         "/api/v1/jobs",
         files={"file": ("bad-photo.pdf", _unreadable_photo_pdf(), "application/pdf")},

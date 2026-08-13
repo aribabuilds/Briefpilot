@@ -62,7 +62,16 @@ class Settings(BaseSettings):
     # docs/adr/0003-free-tier-llm-default-and-aiservice-naming.md.
     ai_provider: Literal["gemini", "openai", "azure_openai"] = "gemini"
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.0-flash"
+    # 2.0-flash AND 2.5-flash were both retired by Google for new API keys
+    # (confirmed via live 404s against this project's key, 2026-08-13) --
+    # verified directly against the API that 3.5/3.6/3.7-flash all still work;
+    # 3.5 is the most conservative (oldest, least likely to be preview/
+    # unstable) of the three. Pinned to a specific version rather than
+    # tracking the "gemini-flash-latest" alias so a future model swap is a
+    # deliberate version bump here, not a silent behavior change from
+    # Google's side -- this is the second time that distinction has mattered
+    # in one debugging session.
+    gemini_model: str = "gemini-3.5-flash"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     azure_openai_api_key: str | None = None

@@ -58,3 +58,13 @@ def test_empty_string_falls_back_to_other() -> None:
     result = parse_classification_response("")
     assert result.doc_type == DocumentType.OTHER
     assert result.confidence == 0.0
+
+
+def test_tolerates_trailing_prose_after_the_json_object() -> None:
+    # Confirmed live against gemini-3.5-flash (2026-08-13): the model can
+    # append explanatory text after an otherwise valid JSON object even with
+    # response_mime_type="application/json" set.
+    raw = '{"doc_type": "finanzamt", "confidence": 0.92}\nNote: pure JSON as requested.'
+    result = parse_classification_response(raw)
+    assert result.doc_type == DocumentType.FINANZAMT
+    assert result.confidence == 0.92

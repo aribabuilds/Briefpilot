@@ -118,3 +118,14 @@ def test_empty_string_input_yields_all_null_fields() -> None:
     result = parse_letter_extraction("")
     assert result.sender.value is None
     assert result.letter_date.value is None
+
+
+def test_tolerates_trailing_prose_after_the_json_object() -> None:
+    # Confirmed live against gemini-3.5-flash (2026-08-13): despite
+    # response_mime_type="application/json", the model appended an
+    # explanatory sentence after an otherwise perfect JSON object -- this
+    # used to silently degrade a fully correct extraction to all-null.
+    raw = _CLEAN_JSON + "\nNote: as requested, the above is pure JSON."
+    result = parse_letter_extraction(raw)
+    assert result.sender.value == "Finanzamt Musterstadt"
+    assert result.amount.value == Decimal("250.00")

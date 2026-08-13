@@ -18,24 +18,16 @@ guessing — the same null-not-guess instinct as OCR quality (M6) and
 classification (M8).
 """
 
-import json
-import re
 from collections.abc import Callable
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from app.schemas.extraction import ExtractedField, LetterExtraction
-
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
+from app.services.ai.json_parsing import extract_json_value
 
 
 def parse_letter_extraction(raw_text: str) -> LetterExtraction:
-    cleaned = _CODE_FENCE_RE.sub("", raw_text).strip()
-    data: object
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError:
-        data = {}
+    data = extract_json_value(raw_text)
     if not isinstance(data, dict):
         data = {}
 

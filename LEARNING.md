@@ -1183,3 +1183,82 @@ something to resolve by deleting information now.
 Explain a real scenario where a field is "medium confidence" (amber) but still shows "unverified,"
 and a different scenario where a field could be "medium confidence" while showing verified — then
 explain why forcing these two signals to always agree would actually make the UI less honest, not more.
+
+---
+
+### Post-merge fix: four real bugs surfaced by testing with a real Gemini key for the first time
+
+**What happened.** M8–M11 were built and tested entirely against a missing `GEMINI_API_KEY` —
+classification and extraction always took the "no key configured" branch of their own best-effort
+error handling, so the actual live-API code paths had never once executed. The owner added a real
+free-tier key and asked for M13/M14 to be tested live. The very first real upload came back with
+`doc_type: null, extraction: null` — everything degraded exactly like a missing key, except the key
+was now present. Getting to a genuinely working end-to-end run took four separate real bugs, found
+and fixed in sequence:
+
+**Bug 1 — `get_ai_service()`'s `@lru_cache` shared one client across independent event loops.**
+`JobService._classify`/`_extract` each call `asyncio.run(...)` — creating and closing a fresh event
+loop per call. The cached `AIService` (and its underlying `httpx.AsyncClient`) was constructed once
+and reused across every call, system-wide. Its connections got bound to whichever loop was active
+when they opened; the next `asyncio.run()` call created a new loop, and cleanup of a stale
+connection from a now-closed loop raised `RuntimeError: Event loop is closed`. Fix: removed
+`@lru_cache` from `get_ai_service()` (`factory.py`) — a fresh client per call costs one cheap object
+allocation, not a network call, and scopes every client to the loop that will actually use it.
+
+**Bug 2 — the configured Gemini model (`gemini-2.0-flash`) had been retired by Google.** A live 404
+named the exact model as no longer available. Bumped to `gemini-2.5-flash` — which turned out to
+also be retired for this (new) API key, a second live 404. Queried `client.models.list()` directly
+against the real key and test-called several current candidates; landed on `gemini-3.5-flash`,
+verified working. Pinned rather than tracking the `gemini-flash-latest` alias, so the next such
+retirement is a deliberate version bump in a commit, not a silent behavior change from Google's side
+mid-project.
+
+**Bug 3 — `response_mime_type="application/json"` is not reliably honored.** Even after bugs 1–2
+were fixed, extraction came back with every field null despite Gemini answering `200 OK`. The raw
+response text showed why: a syntactically perfect JSON object with an unsolicited explanatory
+sentence appended after it (a second live call instead wrapped the JSON with prose *before* it).
+Plain `json.loads` rejects trailing (or leading) content as a hard error, so the null-not-guess
+fallback fired for the wrong reason — treating a genuinely correct extraction as malformed. Fix: new
+shared `app/services/ai/json_parsing.py` — finds the first `{`/`[` in the response and lets
+`json.JSONDecoder.raw_decode` parse one value from there, ignoring whatever precedes or follows.
+Both `extraction_parsing.py` and `classification_parsing.py` (previously each hand-rolling the same
+code-fence-strip-then-`json.loads` logic) now share this one function.
+
+**Bug 4 — a latent test-isolation gap, invisible until a real key existed.**
+`test_pipeline_e2e.py` (M5) used the raw `TestClient(app)` with no dependency override, meaning it
+exercised the real `get_job_service()` factory — which, since M8/M10, wires in real classification
+and extraction whenever an `AI_PROVIDER`/key happen to be configured. With no key, those calls
+failed in milliseconds via JobService's own best-effort handling, so this was invisible for the
+project's entire life so far. With a real key, the same test started making real, slow (and
+occasionally `503`-flaky) network calls to score something — OCR pipeline mechanics — that has
+nothing to do with classification or extraction, and started timing out past its 30-second poll
+window. Fix: this test now constructs its own `JobService` with the real OCR pipeline but
+`classifier=None, extractor=None`, overridden via `app.dependency_overrides` — the same
+"override, don't depend on ambient config" discipline `test_jobs.py` and `test_extraction_e2e.py`
+already used, just never applied here because the gap had never been exercised.
+
+**Why it matters more than any individual bug.** All four were invisible for the entire project
+so far, for the same underlying reason: no test suite, however thorough, exercises a code path that
+a missing API key short-circuits before it ever runs. 165 backend tests and 23 eval tests were all
+green throughout — correctly, they were testing exactly what they claimed to test — but "the app
+works" and "the app works with 0 of the 3 real external dependencies actually engaged" had quietly
+become the same claim. The fix wasn't better tests; CI still can't run these live-API paths without
+either paying or making CI flaky against a real quota. It was a first real end-to-end run, which no
+amount of well-designed mocking substitutes for.
+
+**Interview angle.** *"How would you have caught these earlier?"* Honestly, mocking discipline is
+exactly what *prevented* catching them earlier — every unit and integration test correctly avoided
+live network calls, which is right for CI, but it means "all tests green" was never evidence that
+the real Gemini integration worked, only that the code around it was internally consistent. The
+actual answer is a periodic, manually-triggered smoke test against the real provider (not run in
+CI, not gating merges, just run deliberately before claiming a feature "works") — this session was,
+in effect, the first one this project ever had.
+
+**What was verified, not just fixed.** After all four fixes: a real upload of a synthetic German
+letter through the actual running app produced real OCR text (92% confidence), real classification
+(`finanzamt`, 100% confidence), and real extraction with every field populated and source-span-linked
+against the real OCR output — including a genuine, correct catch by M11's validator: "Paragraph 152
+AO" (the letter's actual wording) got flagged `unrecognized_legal_reference` because the curated
+whitelist regex only recognizes the `§` symbol, not the spelled-out German word "Paragraph" — a real
+gap in the whitelist, not a bug in the flagging logic, and exactly the kind of finding M13's
+eventual real-data tuning pass exists to catch.

@@ -1,5 +1,3 @@
-from functools import lru_cache
-
 from app.config.settings import Settings, get_settings
 from app.services.ai.base import AIService
 from app.services.ai.providers.azure_openai_service import AzureOpenAIService
@@ -35,6 +33,16 @@ def build_ai_service(settings: Settings) -> AIService:
     return OpenAIService(api_key=settings.openai_api_key, model=settings.openai_model)
 
 
-@lru_cache
 def get_ai_service() -> AIService:
+    # Deliberately NOT @lru_cache'd. Every provider's async client (GeminiService,
+    # OpenAIService, AzureOpenAIService) wraps an httpx.AsyncClient whose
+    # connections get bound to whichever asyncio event loop was active when they
+    # were opened. JobService's _classify/_extract each call asyncio.run() --
+    # creating and closing a fresh event loop per call -- so a *cached*,
+    # shared client would hand its second caller connections still tied to a
+    # now-closed loop, raising "RuntimeError: Event loop is closed" during
+    # connection cleanup. A fresh AIService (and thus a fresh client) per call
+    # scopes those connections to that call's own loop and nothing else.
+    # Construction itself makes no network call, so this costs an object
+    # allocation per job, not a real request.
     return build_ai_service(get_settings())
