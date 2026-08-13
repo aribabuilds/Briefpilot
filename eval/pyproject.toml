@@ -1,0 +1,32 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["scoring"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "../backend"
+plugins = ["pydantic.mypy"]
+
+# Same untyped-surface carve-out as backend/pyproject.toml -- run_eval.py
+# imports through app.services.ocr, which itself wraps pytesseract.
+[[tool.mypy.overrides]]
+module = ["pypdfium2.*", "pytesseract.*", "cv2.*"]
+ignore_missing_imports = true

@@ -15,6 +15,7 @@ constrain later milestones do.
 | [0003](0003-free-tier-llm-default-and-aiservice-naming.md) | Free-tier LLM default (Gemini) and the `AIService` naming | Accepted | M8 |
 | [0004](0004-extraction-schema-one-schema-not-per-type.md) | Extraction contract: one common `LetterExtraction` schema, not per-type | Accepted | M9 |
 | [0005](0005-validation-issues-additive-field-on-extractedfield.md) | `validation_issues`: an additive field on the frozen `ExtractedField` | Accepted | M11 |
+| [0006](0006-eval-scoring-taxonomy-five-outcomes-not-a-boolean.md) | Eval scoring taxonomy: five outcomes, not a pass/fail boolean | Accepted | M12 |
 
 ## Planned
 
@@ -22,8 +23,6 @@ The execution plan names four decisions that must not silently change later; eac
 gets an ADR when it is actually made, not before:
 
 - **No-account / session model** (M22) — retrofitting privacy architecture is a rewrite.
-- **Eval harness format** (M12) — golden fixtures are an investment; churning their
-  schema burns it.
 
 ## Format
 

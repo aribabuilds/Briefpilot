@@ -52,3 +52,20 @@ jobs:
       - run: isort --check-only app
       - run: mypy app
       - run: pytest
+      # M12: eval harness. Reuses this job's already-installed Tesseract +
+      # dev tools rather than a separate job, since eval/ depends on nothing
+      # else. `python run_eval.py` is fast today because eval/golden has 0
+      # documents (an honest empty scorecard, not a skip) -- it becomes the
+      # real accuracy gate once golden letters exist, without any CI changes.
+      - run: ruff check .
+        working-directory: eval
+      - run: black --check .
+        working-directory: eval
+      - run: isort --check-only .
+        working-directory: eval
+      - run: mypy .
+        working-directory: eval
+      - run: pytest
+        working-directory: eval
+      - run: python run_eval.py
+        working-directory: eval

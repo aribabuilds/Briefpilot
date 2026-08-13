@@ -994,3 +994,108 @@ letter") and what M11's validation cap means ("this contradicts another value fr
 letter"), and why a system that silently "fixed" a deadline that falls before its own letter date
 would be a worse product than one that just shows the contradiction and lets the user judge it —
 even though "fixing" it would look more polished in a demo.
+
+---
+
+## M12 — Eval harness: scoring taxonomy, run_eval.py, CI wiring *(partial — blocked on real letters)*
+
+### Plan Gate
+
+**What.** `eval/scoring.py`: a pure, zero-dependency 5-outcome comparator (`correct` /
+`correct_null` / `missed` / `wrong` / `hallucinated`) between a label and an extraction, plus
+aggregation and a markdown scorecard generator. `eval/run_eval.py`: the CLI that actually runs the
+real pipeline against every `eval/golden/manifest.json` entry and writes `eval/scorecard.md`. Wired
+into CI as extra steps in the existing `backend` job.
+
+**Files touched.** New `eval/scoring.py`, `eval/run_eval.py`, `eval/pyproject.toml`,
+`eval/tests/test_scoring.py`, `eval/tests/test_run_eval_e2e.py`, `eval/tests/conftest.py`;
+`.github/workflows/ci.yml` (6 new steps); `docs/adr/0006-eval-scoring-taxonomy-five-outcomes-not-a-boolean.md`.
+
+**The trade-off.** Building the full harness now, against 0 golden letters, versus waiting for the
+owner to collect letters first. Chose to build now: the scoring taxonomy, the pipeline wiring, and
+the CI gate are all real engineering work independent of any specific letter, and proving the
+harness itself is correct (via a real-OCR CI-gated test with fake classifier/extractor injection,
+same pattern as M10's `test_extraction_e2e.py`) doesn't require real data — only the actual
+baseline numbers do, and those stay honestly blocked. Full reasoning on the taxonomy itself in
+ADR-0006.
+
+**What's genuinely blocked, not skipped.** M12's own acceptance criterion — "I can see published
+per-field accuracy on real letters" — cannot be met without real letters, which cannot be
+fabricated (M6's D15, reaffirmed here). `scorecard.md` says this explicitly rather than showing a
+fake or empty-looking table.
+
+### Decisions log
+
+#### D31 — Five outcomes, not a boolean, and `HALLUCINATED` is called out as the important one
+
+**What.** `score_field` returns one of `CORRECT`, `CORRECT_NULL`, `MISSED`, `WRONG`,
+`HALLUCINATED` — never a plain `bool`. The generated scorecard markdown explicitly states that a
+non-zero `HALLUCINATED` count matters more than the headline accuracy percentage.
+
+**Why.** A single accuracy number can't distinguish "the model honestly said null on a hard case"
+from "the model invented a plausible-looking value the letter never had" — and those are not
+equally bad. Collapsing them into one `wrong` bucket would hide the exact failure mode
+null-not-guess (`CLAUDE.md` §5.1) exists to prevent, making the scorecard measure something other
+than what actually matters for this product.
+
+**Interview angle.** *"Why five categories and not, say, three?"* Each one answers a different
+question a reviewer would actually ask: `CORRECT`/`CORRECT_NULL` answer "did it work," `MISSED`
+answers "is the model too conservative," `WRONG` answers "is the model confidently incorrect," and
+`HALLUCINATED` answers "does the model invent things" — the single question this whole project is
+built to answer honestly. Fewer categories would merge two of those questions into one answer.
+
+#### D32 — `run_eval.py` injects the classifier/extractor, reusing `JobService`'s own seam
+
+**What.** `score_one_document` takes `classifier: ClassifierRunner | None` and
+`extractor: ExtractorRunner | None` as parameters — the exact type aliases already defined in
+`app.services.job_service` — rather than calling `get_ai_service()` inline.
+
+**Why.** The same reason `JobService` itself is built this way: it makes the OCR + scoring wiring
+testable against a real rendered PDF, through real Tesseract, without a live (and non-deterministic,
+rate-limited, non-free-in-CI-minutes) LLM call. `eval/tests/test_run_eval_e2e.py` proves this
+directly — the fake extractor deliberately gets one field wrong, so the test proves `score_document`
+ran on real pipeline output rather than a stub that always reports success.
+
+**Interview angle.** *"Isn't this over-engineering for a one-off eval script?"* No — reusing an
+existing, already-proven seam is the opposite of over-engineering; the alternative (calling
+`get_ai_service()` directly inside `run_eval.py`) would have made the harness itself untestable
+without either a real API key or a second, parallel mocking strategy the codebase doesn't otherwise
+need.
+
+#### D33 — The scorecard is explicit about 0 documents rather than rendering an empty or fabricated table
+
+**What.** `generate_scorecard_markdown` special-cases `document_count == 0`: instead of an empty
+table (technically true, easy to misread as "0% everywhere" or "nothing to report") it writes a
+plain-language paragraph naming the exact reason and pointing at `eval/golden/README.md`.
+
+**Why.** An empty or all-zero-looking table in a portfolio project reads ambiguously — did nothing
+run, or did everything fail? Given this project's whole differentiator is honesty about what it
+does and doesn't know, the harness's own output about *itself* needed to hold to the same standard.
+
+**Interview angle.** *"Why not just skip generating a scorecard at 0 documents?"* Because "the
+harness runs and produces a correct, honest result" is itself worth proving in CI on every push,
+not just once real letters exist — a skip would mean a broken harness could sit undetected until
+the day someone actually needs it.
+
+### Review questions
+
+1. **Read the code.** `_norm_list` in `scoring.py` treats an empty list and `None` as the same
+   "nothing here" state. Trace through what `score_field("legal_references", [], ["§ 152 AO"])`
+   returns and why — then explain why this specific case (label says empty, extraction lists
+   something) is scored as `HALLUCINATED` rather than `WRONG`.
+2. **Design.** `field_accuracy` counts `CORRECT_NULL` as "correct." Construct a golden set where a
+   field is null on every single letter (e.g., `amount` on a `krankenkasse` letter type that never
+   mentions money) — what would that field's accuracy read as, and is that number actually useful,
+   or does it need a different presentation (e.g., excluding fields with very few non-null labels)?
+3. **Practice.** `eval/pyproject.toml` sets `mypy_path = "../backend"` so `run_eval.py`'s
+   `app.*` imports type-check, while `scoring.py` has zero such imports at all. What would you lose,
+   architecturally, if `scoring.py` also imported directly from `app.schemas.extraction` instead of
+   operating on plain dicts?
+
+### Teach-back
+
+> **"The most important number in this scorecard isn't the accuracy percentage — it's the hallucination count."**
+Explain, in a way a non-technical hiring manager would follow, why a system that's 85% accurate but
+never hallucinates is a better product than one that's 92% accurate but occasionally invents a
+deadline — and why a scorecard that only reports the single accuracy number would hide that
+difference entirely.
