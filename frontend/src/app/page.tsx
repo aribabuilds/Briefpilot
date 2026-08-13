@@ -1,8 +1,11 @@
+import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { UploadForm } from "@/components/UploadForm";
 
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-white px-6 py-16 text-center dark:bg-neutral-950">
+      <ConnectionStatus />
+
       <div className="flex flex-col items-center gap-3">
         <h1 className="text-4xl font-bold tracking-tight text-neutral-900 sm:text-5xl dark:text-neutral-50">
           BriefPilot

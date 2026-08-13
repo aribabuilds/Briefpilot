@@ -1,7 +1,9 @@
+import type { HealthStatus } from "@/types/health";
 import type { Job, JobCreatedResponse } from "@/types/job";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const JOBS_URL = `${API_BASE}/api/v1/jobs`;
+const HEALTH_URL = `${API_BASE}/health`;
 
 /** Thrown for any non-2xx response, carrying the backend's detail when present. */
 export class ApiError extends Error {
@@ -40,4 +42,12 @@ export async function getJob(id: string): Promise<Job> {
     throw new ApiError(await detail(response, "Could not load job."), response.status);
   }
   return (await response.json()) as Job;
+}
+
+export async function getHealth(): Promise<HealthStatus> {
+  const response = await fetch(HEALTH_URL, { cache: "no-store" });
+  if (!response.ok) {
+    throw new ApiError(await detail(response, "Health check failed."), response.status);
+  }
+  return (await response.json()) as HealthStatus;
 }
