@@ -54,7 +54,29 @@
       "Bash(curl -s https://api.github.com/repos/aribabuilds/Briefpilot/actions/runs/30441006534/jobs -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/jobs.json)",
       "Bash(curl -sL -w '\\\\nHTTP_STATUS:%{http_code}\\\\n' https://api.github.com/repos/aribabuilds/Briefpilot/actions/jobs/90540037506/logs -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/backend_job.log)",
       "Bash(./lintenv/Scripts/python.exe -c ' *)",
-      "Bash(pip show *)"
+      "Bash(pip show *)",
+      "Bash(curl -s https://api.github.com/repos/aribabuilds/Briefpilot/actions/runs?per_page=1 -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/runs.json)",
+      "Bash(which choco *)",
+      "Bash(curl -s https://api.github.com/repos/aribabuilds/Briefpilot/commits/2571e9d6/check-runs -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/checkruns.json)",
+      "Bash(curl -s https://api.github.com/repos/aribabuilds/Briefpilot/commits/d59e3b4/check-runs -o C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/checkruns2.json)",
+      "Bash(choco install *)",
+      "Bash(\"I:/AARIBA/project/Briefpilot/backend/.venv/Scripts/python.exe\" --version)",
+      "Bash(\"I:/AARIBA/project/Briefpilot/backend/.venv/Scripts/python.exe\" -c \"import fastapi, uvicorn; print\\('fastapi', fastapi.__version__\\)\")",
+      "Bash(I:/AARIBA/project/Briefpilot/backend/.venv/Scripts/python.exe -c ' *)",
+      "Bash(\"./.venv/Scripts/python.exe\" -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(curl -s http://127.0.0.1:8000/version)",
+      "Bash(\"./.venv/Scripts/python.exe\" -m pip show pydantic-settings pydantic)",
+      "Bash(\"./.venv/Scripts/python.exe\" -c \"from pydantic_settings import NoDecode; print\\('ok'\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/v1/jobs -F 'file=@C:/Users/ariba/AppData/Local/Temp/claude/I--AARIBA-project-Briefpilot/b45fa951-c4ed-4171-8155-bb9bc02a24b8/scratchpad/test_letter.png;type=image/png')",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $5}')",
+      "Bash(taskkill //F //PID 13788)",
+      "Bash(\"./.venv/Scripts/python.exe\" -c \"import pytesseract; print\\(pytesseract.get_tesseract_version\\(\\)\\)\")",
+      "Bash(\"./.venv/Scripts/python.exe\" -m pip list)",
+      "Bash(\"./.venv/Scripts/python.exe\" -m pytest app/tests/test_validators.py -q)",
+      "Bash(\"./.venv/Scripts/python.exe\" -m pytest -q)"
     ]
   }
 }
