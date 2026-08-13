@@ -1099,3 +1099,87 @@ Explain, in a way a non-technical hiring manager would follow, why a system that
 never hallucinates is a better product than one that's 92% accurate but occasionally invents a
 deadline — and why a scorecard that only reports the single accuracy number would hide that
 difference entirely.
+
+---
+
+## M14 — Confidence tiers *(partial — golden set + retro are the owner's task)*
+
+### Plan Gate
+
+**What.** `frontend/src/lib/confidence.ts`: a pure `confidenceTier(confidence: number)` function
+bucketing the raw `[0,1]` value into `"high" | "medium" | "low"`, wired into `ExtractionSummary` as
+color-coded confidence text.
+
+**Files touched.** New `frontend/src/lib/confidence.ts`; `frontend/src/components/ExtractionSummary.tsx`.
+
+**The trade-off.** Computing the tier on the frontend from the confidence value already in the API
+response, versus adding a `confidence_tier` field to the backend's `ExtractedField` schema. Chose
+the frontend: tiering is purely a presentation decision (where to draw the line on a display), not
+new information the pipeline computes — adding a backend field would mean extending the ADR-0004/
+ADR-0005 contract for something fully derivable from data already being sent, which is the same
+minimal-surface argument this project has applied at every schema decision so far.
+
+**No ADR.** Per `docs/adr/README.md`'s own bar ("things that constrain later milestones," not
+routine choices), this doesn't qualify — the thresholds are a small, easily-revised display
+constant, not something that locks in a schema, a provider, or a fixture format.
+
+### Decisions log
+
+#### D34 — Tier thresholds are aligned to the pipeline's own existing confidence caps, not independently chosen
+
+**What.** The medium/low boundary is 0.4 — not a round number picked for its own sake, but exactly
+`source_span_linking.UNVERIFIED_CONFIDENCE_CAP` (M10). The high/medium boundary (0.8) is the one
+genuinely new constant this milestone introduces.
+
+**Why.** An unverified value is *by construction* capped at 0.4, so if the tier boundary had been
+placed anywhere else, "unverified" and "low confidence" would disagree with each other on some
+subset of values — a value could show as "medium confidence" in the tier badge while its own
+tooltip says "could not be matched back to the letter text," which reads as contradictory. Reusing
+the existing cap as the boundary keeps the two signals (verified/unverified, tier color) coherent
+with each other instead of being two independently-tuned opinions that can drift apart.
+
+**Interview angle.** *"Why not just make the tier thresholds configurable, like the OCR quality
+gate's settings?"* `min_mean_confidence`/`min_word_count` (M6) gate a *decision* (retake or not) with
+real product consequences if tuned wrong; confidence tiers are read-only presentation sugar with no
+downstream branching — over-engineering a settings surface for a value nothing else depends on
+would add configuration surface area for a problem that doesn't exist yet.
+
+#### D35 — The tier recolors the confidence percentage; it doesn't replace the verified/unverified badge
+
+**What.** `ExtractionSummary` keeps the raw percentage number, the ✓/unverified label, and the
+⚠ flagged badge exactly as M10/M11 built them — the tier only changes what color the confidence
+text renders in.
+
+**Why.** Collapsing everything into a single "High/Medium/Low" word would lose the precise
+percentage (some users will want to know it's specifically 42%, not just "medium") and would blur
+together three distinct questions this UI already answers separately: is it grounded in the source
+text (verified), is it internally consistent (flagged), and how confident should you be overall
+(tier). Replacing three signals with one summary judgment is exactly the kind of information loss
+D28 (M12's scoring taxonomy) already rejected once, in a different part of the same product.
+
+**Interview angle.** *"Doesn't showing four different confidence signals on one field overwhelm a
+non-technical user?"* Fair challenge — the honest answer is this is the developer-facing/portfolio
+density of the signal today; the actual product decision about how much of this a real end user
+should see at once (versus behind a "why?" affordance) is a UX call for M17's results-page pass, not
+something to resolve by deleting information now.
+
+### Review questions
+
+1. **Read the code.** `confidenceTier` uses `>=` for both thresholds (`confidence >= 0.8`,
+   `confidence >= 0.4`). Trace through what tier a field with confidence exactly `0.4` — precisely
+   `UNVERIFIED_CONFIDENCE_CAP` — receives, and confirm that matches what you'd intuitively expect an
+   "unverified" field to look like.
+2. **Design.** If `VALIDATION_FAILURE_CONFIDENCE_CAP` (M11, currently 0.2) were ever changed to
+   something above 0.4, what would happen to how a validation-flagged field displays, and would that
+   still make sense next to the ⚠ flagged badge?
+3. **Practice.** `confidence.ts` has no automated test — this project has no frontend test framework
+   set up yet (`frontend/package.json` only runs lint/format/build in CI). What did verifying this
+   milestone actually rely on instead, and what's the concrete risk of that gap the next time this
+   file changes?
+
+### Teach-back
+
+> **"The tier color and the verified badge can point in different directions, and that's correct, not a bug."**
+Explain a real scenario where a field is "medium confidence" (amber) but still shows "unverified,"
+and a different scenario where a field could be "medium confidence" while showing verified — then
+explain why forcing these two signals to always agree would actually make the UI less honest, not more.

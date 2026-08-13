@@ -1,3 +1,4 @@
+import { confidenceTier, confidenceTierLabel } from "@/lib/confidence";
 import type { ExtractedField, LetterExtraction } from "@/types/job";
 
 interface ExtractionSummaryProps {
@@ -60,6 +61,7 @@ export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
           // an unverified value was capped in confidence for exactly this reason.
           const verified = field.source_span !== null;
           const flagged = field.validation_issues.length > 0;
+          const tier = confidenceTier(field.confidence);
           return (
             <div key={key} className="flex items-baseline justify-between gap-4 py-1.5">
               <dt className="text-xs text-neutral-500 dark:text-neutral-500">
@@ -69,15 +71,17 @@ export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
                 <span>{formatValue(field.value)}</span>
                 <span
                   className={
-                    verified
+                    tier === "high"
                       ? "text-xs text-emerald-600 dark:text-emerald-400"
-                      : "text-xs text-amber-600 dark:text-amber-400"
+                      : tier === "medium"
+                        ? "text-xs text-amber-600 dark:text-amber-400"
+                        : "text-xs text-orange-600 dark:text-orange-400"
                   }
-                  title={
+                  title={`${confidenceTierLabel(tier)} — ${
                     verified
-                      ? "Found in the original letter text"
-                      : "Could not be matched back to the original letter text"
-                  }
+                      ? "found in the original letter text"
+                      : "could not be matched back to the original letter text"
+                  }`}
                 >
                   {Math.round(field.confidence * 100)}% {verified ? "✓" : "unverified"}
                 </span>
