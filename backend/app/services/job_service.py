@@ -20,6 +20,7 @@ from app.services.document_pipeline import build_document
 from app.services.ocr import TesseractOcrService
 from app.services.quality import assess_quality
 from app.services.source_span_linking import link_source_spans
+from app.services.validators import validate_extraction
 
 logger = structlog.get_logger(__name__)
 
@@ -125,7 +126,8 @@ class JobService:
             try:
                 extraction = self._extractor(document.text)
                 linked = link_source_spans(extraction, document)
-                result = result.model_copy(update={"extraction": linked})
+                validated = validate_extraction(linked)
+                result = result.model_copy(update={"extraction": validated})
             except Exception:  # noqa: BLE001 - best-effort; never fail the job over this
                 logger.warning("extraction_failed", job_id=job_id, exc_info=True)
 

@@ -42,6 +42,11 @@ class ExtractedField[T](BaseModel):
     confidence: float  # [0, 1]
     # None exactly when value is None — nothing to point back to.
     source_span: SourceSpan | None = None
+    # Additive field (M11, ADR-0005): machine-readable codes from
+    # services/validators.py, e.g. "deadline_before_letter_date". Empty means
+    # no deterministic check failed -- never removed or overwritten, only
+    # appended to, so a field can carry more than one flag at once.
+    validation_issues: list[str] = []
 
 
 class LetterExtraction(BaseModel):

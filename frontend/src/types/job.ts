@@ -33,10 +33,14 @@ export interface SourceSpan {
 // Pydantic serializes `date` as an ISO string and `Decimal` (amount) as a
 // string to preserve precision (verified in test_extraction_schemas.py) — do
 // not `parseFloat`/`new Date()` these without knowing that's what you want.
+// M11/ADR-0005: machine-readable codes from backend/app/services/validators.py,
+// e.g. "deadline_before_letter_date" -- empty means no deterministic check
+// failed. Additive to the frozen ADR-0004 contract, never removed.
 export interface ExtractedField<T> {
   value: T | null;
   confidence: number;
   source_span: SourceSpan | null;
+  validation_issues: string[];
 }
 
 // Mirrors backend/app/schemas/extraction.py::LetterExtraction (frozen, ADR-0004).

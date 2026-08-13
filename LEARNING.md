@@ -876,3 +876,121 @@ three digit fields must) are also kept: digit-level OCR fidelity on a synthetic 
 still a genuinely untested variable, now that the test can actually reach that code path for the
 first time — honesty about that uncertainty is warranted regardless of what caused this
 particular failure.
+
+---
+
+## M11 — Deterministic validation: impossible values, caught and flagged *(done)*
+
+### A note on process for M11 onward
+
+The owner explicitly chose "full speed, review later" (2026-08-13): milestones M11–M30 are built
+back to back, with a Plan Gate and Milestone Review still written for each (this section is that
+record), but without pausing for approval or waiting on engagement between them. This is a
+deliberate, owner-made trade-off against `CLAUDE.md` §6's default protocol, not a silent skip —
+logged in `PROGRESS.md`'s Known Deviations table so it stays visible. M1–M10's review questions
+remain open and unanswered; M11's are added to the same pile, to be worked through in one batch
+later rather than blocking forward progress now.
+
+### Plan Gate
+
+**What.** `services/validators.py`: pure functions checking `deadline >= letter_date`,
+`amount >= 0`, and each `legal_references` entry against a curated § whitelist. A failure appends
+a code to a new `ExtractedField.validation_issues: list[str]` field and caps confidence — never
+rewrites the value. Wired into `JobService` right after M10's `link_source_spans`. Frontend gets a
+`⚠ flagged` badge in `ExtractionSummary`.
+
+**Files touched.** `backend/app/schemas/extraction.py` (additive field), new
+`backend/app/services/validators.py`, `backend/app/services/job_service.py` (one new call),
+`backend/app/tests/test_validators.py` (new), `backend/app/tests/test_jobs.py` (2 new tests),
+`frontend/src/types/job.ts`, `frontend/src/components/ExtractionSummary.tsx`,
+`docs/adr/0005-validation-issues-additive-field-on-extractedfield.md`.
+
+**The trade-off.** Extending `ExtractedField` — frozen by ADR-0004 — versus a separate
+`ValidationResult` object correlated by field name. Chose the extension: keeping a flag on the
+field it describes avoids forcing the frontend to cross-reference two structures for one badge,
+and the freeze exists to protect *golden fixtures* from schema churn, not to block a genuinely
+additive, backward-compatible field before any fixtures exist. Full reasoning in ADR-0005.
+
+### Decisions log
+
+#### D28 — `validation_issues` is a `list[str]` of codes, not a `bool`
+
+**What.** A failed check appends a short machine-readable string (`"negative_amount"`) to a list
+on the field, rather than flipping a single `is_valid` boolean.
+
+**Why.** A boolean discards *why* — information the frontend already needs (the `⚠ flagged`
+tooltip) and that a future eval scorecard (M12) will need to break failures down by category
+instead of one undifferentiated bucket. A list also survives a field failing more than one check
+at once without redesign, which a single boolean can't represent at all.
+
+**Interview angle.** *"Why not just a string, if today only one issue ever fires per field?"* Because
+designing for today's actual constraint ("exactly one check per field is currently possible") into
+the data shape itself is exactly the kind of premature narrowing that breaks the next time someone
+adds a fourth rule — a list costs nothing extra today and doesn't need a migration later.
+
+#### D29 — Two independent confidence ceilings that compose via `min()`, not one shared cap
+
+**What.** Source-span linking (M10) caps unverifiable values at `0.4`. Validation (M11) caps
+semantically-impossible values at `0.2`, applied as a *second*, independent `min()` on top of
+whatever linking already produced — never as a replacement.
+
+**Why.** These are different severities of "don't fully trust this": "could not confirm this
+appears in the letter" is weaker evidence of an actual error than "this value contradicts another
+value from the same letter." Collapsing them into one shared cap would make an internally
+consistent-but-unlinked value (e.g., a real amount the candidate generators just don't have a
+surface form for) look exactly as suspect as one that's flatly self-contradictory — the same
+information-loss mistake D26 already rejected once, now showing up at the boundary between two
+mechanisms instead of within one.
+
+**Interview angle.** *"Why not have validation run first, then linking?"* Order was chosen
+deliberately: linking answers "is this grounded in the source text," validation answers "is this
+internally plausible" — grounding is checked before plausibility because a value that isn't even
+in the letter shouldn't get credit for looking numerically reasonable. In practice the `min()`
+composition makes the order not actually change the final confidence for any single-failure case,
+but it does change *which* flag a reader sees attached first if both were to run and inspect
+intermediate state — worth being able to explain even though it isn't currently observable from
+the API response.
+
+#### D30 — The § whitelist flags the whole `legal_references` field, not the one bad entry
+
+**What.** If any single reference in the list fails the whitelist check, `unrecognized_legal_reference`
+is appended once, to the field — not per-item, and the rest of the (possibly-valid) references in
+the same list aren't distinguished from the bad one.
+
+**Why.** Same simplification `SourceSpan` already made for this exact field in D27 (M10): the
+schema wraps one list value per field, not one wrapper per list item. Adding per-item validation
+state would mean either a schema shape change mid-freeze or a second, parallel data structure
+side-by-side with the list — for a case with zero golden-letter evidence yet showing how often
+multi-reference letters with mixed valid/invalid citations actually occur.
+
+**Interview angle.** *"Isn't flagging the whole list overly broad if only one of three references
+is bad?"* Yes, named directly as a known boundary rather than hidden — the same honest-scope-line
+argument D27 already made. If real data shows multi-reference letters are common and the coarse
+flag is actively misleading, that's a concrete, evidence-based reason to revisit the schema; guessing
+now, with no letters to check the guess against, isn't.
+
+### Review questions
+
+1. **Read the code.** `_validate_deadline` and `_validate_amount` take concrete types
+   (`ExtractedField[date]`, `ExtractedField[Decimal]`) while `_flag` is generic (`_flag[T]`). Why
+   does the generic version exist at all if only two concrete call sites use it today, and what
+   would you lose by inlining the confidence-cap logic directly into each validator instead?
+2. **Design.** `VALIDATION_FAILURE_CONFIDENCE_CAP` (0.2) is lower than
+   `UNVERIFIED_CONFIDENCE_CAP` (0.4) from M10. Construct a realistic letter scenario where a value
+   fails *both* checks at once, and trace through exactly what confidence the API response would
+   show and why — then say whether that final number still communicates something meaningfully
+   different from a value that only failed one of the two checks.
+3. **Practice.** `is_recognized_legal_reference` is exported as a public function from
+   `validators.py`, while `_validate_deadline`, `_validate_amount`, and `_validate_legal_references`
+   are all prefixed private. What's the actual reason one function in this module needed to be
+   part of the public interface and the other three didn't — check the test file if the answer
+   isn't obvious from the module alone?
+
+### Teach-back
+
+> **"An impossible value doesn't get corrected or hidden — it gets a lower trust score and an honest reason why."**
+Explain the difference between what M10's source-span cap means ("I can't prove this is in the
+letter") and what M11's validation cap means ("this contradicts another value from the same
+letter"), and why a system that silently "fixed" a deadline that falls before its own letter date
+would be a worse product than one that just shows the contradiction and lets the user judge it —
+even though "fixing" it would look more polished in a demo.

@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -271,6 +272,57 @@ def test_classification_and_extraction_are_independent(client: TestClient) -> No
     assert body["status"] == JobStatus.DONE.value
     assert body["result"]["doc_type"] is None  # classification failed
     assert body["result"]["extraction"]["sender"]["value"] == "Finanzamt"  # extraction still ran
+
+
+# --- deterministic validation wiring (M11) ----------------------------------
+
+
+def test_validation_flags_deadline_before_letter_date_through_the_full_pipeline(
+    client: TestClient,
+) -> None:
+    def extract(text: str) -> LetterExtraction:
+        extraction = _empty_extraction()
+        return extraction.model_copy(
+            update={
+                "letter_date": ExtractedField(value=date(2026, 3, 10), confidence=0.9),
+                "deadline": ExtractedField(value=date(2026, 3, 1), confidence=0.9),
+            }
+        )
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), extractor=extract))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    deadline = body["result"]["extraction"]["deadline"]
+    assert deadline["value"] == "2026-03-01"  # value preserved, not corrected
+    assert deadline["confidence"] == pytest.approx(0.2)
+    assert "deadline_before_letter_date" in deadline["validation_issues"]
+
+
+def test_validation_leaves_consistent_values_unflagged_through_the_full_pipeline(
+    client: TestClient,
+) -> None:
+    def extract(text: str) -> LetterExtraction:
+        extraction = _empty_extraction()
+        return extraction.model_copy(
+            update={
+                "letter_date": ExtractedField(value=date(2026, 3, 1), confidence=0.9),
+                "deadline": ExtractedField(value=date(2026, 3, 31), confidence=0.9),
+            }
+        )
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), extractor=extract))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    deadline = body["result"]["extraction"]["deadline"]
+    # Semantically consistent, so no *validation* flag -- but the OCR fixture's
+    # text ("Finanzamt") never contains this date, so M10's source-span
+    # linking still caps it as unverified. The two mechanisms are independent:
+    # this proves validation doesn't re-flag (or further downgrade) a value
+    # that already failed a different, earlier check for a different reason.
+    assert deadline["validation_issues"] == []
+    assert deadline["confidence"] == pytest.approx(0.4)
 
 
 def test_low_confidence_document_is_marked_low_quality(client: TestClient) -> None:

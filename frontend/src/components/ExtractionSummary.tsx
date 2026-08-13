@@ -23,6 +23,17 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+// Mirrors the codes appended by backend/app/services/validators.py.
+const VALIDATION_ISSUE_LABELS: Record<string, string> = {
+  deadline_before_letter_date: "Deadline falls before the letter's own date",
+  negative_amount: "Amount is negative",
+  unrecognized_legal_reference: "Legal reference not in the known list",
+};
+
+function describeIssues(issues: string[]): string {
+  return issues.map((issue) => VALIDATION_ISSUE_LABELS[issue] ?? issue).join("; ");
+}
+
 export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
   const entries = (Object.keys(FIELD_LABELS) as (keyof LetterExtraction)[])
     .map((key) => ({ key, field: extraction[key] }))
@@ -48,6 +59,7 @@ export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
           // the M18/M19 overlay. This is the honesty signal in the meantime:
           // an unverified value was capped in confidence for exactly this reason.
           const verified = field.source_span !== null;
+          const flagged = field.validation_issues.length > 0;
           return (
             <div key={key} className="flex items-baseline justify-between gap-4 py-1.5">
               <dt className="text-xs text-neutral-500 dark:text-neutral-500">
@@ -69,6 +81,14 @@ export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
                 >
                   {Math.round(field.confidence * 100)}% {verified ? "✓" : "unverified"}
                 </span>
+                {flagged && (
+                  <span
+                    className="text-xs text-red-600 dark:text-red-400"
+                    title={describeIssues(field.validation_issues)}
+                  >
+                    ⚠ flagged
+                  </span>
+                )}
               </dd>
             </div>
           );
