@@ -16,6 +16,7 @@ constrain later milestones do.
 | [0004](0004-extraction-schema-one-schema-not-per-type.md) | Extraction contract: one common `LetterExtraction` schema, not per-type | Accepted | M9 |
 | [0005](0005-validation-issues-additive-field-on-extractedfield.md) | `validation_issues`: an additive field on the frozen `ExtractedField` | Accepted | M11 |
 | [0006](0006-eval-scoring-taxonomy-five-outcomes-not-a-boolean.md) | Eval scoring taxonomy: five outcomes, not a pass/fail boolean | Accepted | M12 |
+| [0007](0007-grounded-explanation-and-the-advice-linter.md) | Grounded explanation: two independent safeguards, not one | Accepted | M15 |
 
 ## Planned
 

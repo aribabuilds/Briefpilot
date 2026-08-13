@@ -7,11 +7,18 @@ from fastapi.testclient import TestClient
 from app.config.settings import Settings, get_settings
 from app.main import app
 from app.repositories.job_repository import InMemoryJobRepository
+from app.schemas.ai import DocumentExplanationResult
 from app.schemas.classification import ClassificationResult, DocumentType
 from app.schemas.extraction import ExtractedField, LetterExtraction
 from app.schemas.job import JobStatus
 from app.schemas.ocr import BBox, OcrDocument, OcrPage, OcrWord
-from app.services.job_service import ClassifierRunner, ExtractorRunner, JobService, get_job_service
+from app.services.job_service import (
+    ClassifierRunner,
+    ExplainerRunner,
+    ExtractorRunner,
+    JobService,
+    get_job_service,
+)
 
 PDF = ("letter.pdf", b"%PDF-1.4 fake", "application/pdf")
 
@@ -39,6 +46,7 @@ def _service_with(
     *,
     classifier: ClassifierRunner | None = None,
     extractor: ExtractorRunner | None = None,
+    explainer: ExplainerRunner | None = None,
 ) -> JobService:
     return JobService(
         InMemoryJobRepository(),
@@ -48,6 +56,7 @@ def _service_with(
         min_word_count=5,
         classifier=classifier,
         extractor=extractor,
+        explainer=explainer,
     )
 
 
@@ -323,6 +332,121 @@ def test_validation_leaves_consistent_values_unflagged_through_the_full_pipeline
     # that already failed a different, earlier check for a different reason.
     assert deadline["validation_issues"] == []
     assert deadline["confidence"] == pytest.approx(0.4)
+
+
+# --- explanation wiring (M15) -------------------------------------------------
+
+
+def test_successful_explanation_populates_result(client: TestClient) -> None:
+    def explain(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+        return DocumentExplanationResult(explanation="This letter is from the Finanzamt.")
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), explainer=explain))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    explanation = body["result"]["explanation"]
+    assert explanation["text"] == "This letter is from the Finanzamt."
+    assert explanation["word_count"] == 6
+    assert explanation["advice_phrases_found"] == []
+    assert explanation["exceeds_word_limit"] is False
+
+
+def test_explanation_receives_the_validated_extraction_as_grounding(client: TestClient) -> None:
+    seen: list[LetterExtraction] = []
+
+    def extract(text: str) -> LetterExtraction:
+        extraction = _empty_extraction()
+        return extraction.model_copy(
+            update={"sender": ExtractedField(value="Finanzamt Muenchen", confidence=0.9)}
+        )
+
+    def explain(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+        seen.append(extraction)
+        return DocumentExplanationResult(explanation="ok")
+
+    _override_service(
+        _service_with(
+            lambda content, ct: _document("Finanzamt"), extractor=extract, explainer=explain
+        )
+    )
+    client.post("/api/v1/jobs", files={"file": PDF})
+
+    assert len(seen) == 1
+    assert seen[0].sender.value == "Finanzamt Muenchen"
+
+
+def test_explanation_falls_back_to_empty_extraction_when_extraction_unconfigured(
+    client: TestClient,
+) -> None:
+    seen: list[LetterExtraction] = []
+
+    def explain(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+        seen.append(extraction)
+        return DocumentExplanationResult(explanation="ok")
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), explainer=explain))
+    client.post("/api/v1/jobs", files={"file": PDF})
+
+    assert len(seen) == 1
+    assert seen[0].sender.value is None  # the all-null grounding fallback, not a crash
+
+
+def test_explanation_flags_advice_phrases_but_keeps_the_text(client: TestClient) -> None:
+    def explain(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+        return DocumentExplanationResult(explanation="You should pay this immediately.")
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), explainer=explain))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    explanation = body["result"]["explanation"]
+    # The text is never rewritten or hidden -- only flagged. What the frontend
+    # does with that flag (M17) is a separate concern from JobService's job.
+    assert explanation["text"] == "You should pay this immediately."
+    assert "you_should" in explanation["advice_phrases_found"]
+
+
+def test_explainer_failure_leaves_explanation_null_but_job_still_done(client: TestClient) -> None:
+    def boom(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+        raise RuntimeError("GEMINI_API_KEY must be set when AI_PROVIDER=gemini.")
+
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), explainer=boom))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["explanation"] is None
+    assert body["result"]["text"]  # OCR output is unaffected
+
+
+def test_no_explainer_configured_leaves_explanation_null(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt"), explainer=None))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.DONE.value
+    assert body["result"]["explanation"] is None
+
+
+def test_explanation_is_skipped_for_low_quality_documents(client: TestClient) -> None:
+    calls: list[str] = []
+
+    def explain(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+        calls.append(text)
+        return DocumentExplanationResult(explanation="ok")
+
+    _override_service(
+        _service_with(
+            lambda content, ct: _document("blur", words=10, confidence=0.2),
+            explainer=explain,
+        )
+    )
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    body = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert body["status"] == JobStatus.LOW_QUALITY.value
+    assert calls == []  # garbled OCR text is never sent to explanation either
 
 
 def test_low_confidence_document_is_marked_low_quality(client: TestClient) -> None:

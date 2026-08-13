@@ -1,22 +1,29 @@
 from google import genai
 from google.genai.types import GenerateContentConfig
 
-from app.schemas.ai import DocumentExtractionRequest, SummarizationRequest, SummarizationResult
+from app.schemas.ai import (
+    DocumentExplanationRequest,
+    DocumentExplanationResult,
+    DocumentExtractionRequest,
+)
 from app.schemas.classification import ClassificationRequest, ClassificationResult
 from app.schemas.extraction import LetterExtraction
 from app.services.ai.base import AIService
 from app.services.ai.classification_parsing import parse_classification_response
+from app.services.ai.explanation_parsing import parse_explanation_response
 from app.services.ai.extraction_parsing import parse_letter_extraction
 from app.services.ai.prompts.classify import (
     CLASSIFICATION_SYSTEM_INSTRUCTION,
     build_classification_user_message,
 )
+from app.services.ai.prompts.explain import (
+    EXPLANATION_SYSTEM_INSTRUCTION,
+    build_explanation_user_message,
+)
 from app.services.ai.prompts.extract import (
     EXTRACTION_SYSTEM_INSTRUCTION,
     build_extraction_user_message,
 )
-
-_SUMMARIZATION_INSTRUCTIONS = "Summarize the following text."
 
 
 class GeminiService(AIService):
@@ -42,15 +49,19 @@ class GeminiService(AIService):
         )
         return parse_letter_extraction(response.text or "")
 
-    async def summarize(self, request: SummarizationRequest) -> SummarizationResult:
+    async def explain_document(
+        self, request: DocumentExplanationRequest
+    ) -> DocumentExplanationResult:
         config = GenerateContentConfig(
-            system_instruction=_SUMMARIZATION_INSTRUCTIONS,
-            max_output_tokens=request.max_length,
+            system_instruction=EXPLANATION_SYSTEM_INSTRUCTION,
+            response_mime_type="application/json",
         )
         response = await self._client.aio.models.generate_content(
-            model=self._model, contents=request.content, config=config
+            model=self._model,
+            contents=build_explanation_user_message(request.content, request.extraction),
+            config=config,
         )
-        return SummarizationResult(summary=response.text or "")
+        return parse_explanation_response(response.text or "")
 
     async def classify_document(self, request: ClassificationRequest) -> ClassificationResult:
         config = GenerateContentConfig(

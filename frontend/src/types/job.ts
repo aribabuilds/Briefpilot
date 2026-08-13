@@ -53,6 +53,19 @@ export interface LetterExtraction {
   required_actions: ExtractedField<string[]>;
 }
 
+// Mirrors backend/app/schemas/explanation.py::ExplanationResult (M15).
+export interface ExplanationResult {
+  text: string;
+  word_count: number;
+  flesch_reading_ease: number;
+  exceeds_word_limit: boolean;
+  below_readability_target: boolean;
+  // Machine-readable codes from backend/app/services/advice_linter.py, e.g.
+  // "you_should" -- empty means the linter found nothing. CLAUDE.md §5.4:
+  // BriefPilot explains, it never gives legal advice.
+  advice_phrases_found: string[];
+}
+
 export interface JobResult {
   filename: string;
   page_count: number;
@@ -66,6 +79,9 @@ export interface JobResult {
   doc_type_confidence: number | null;
   // Independent of classification — either can succeed or fail on its own.
   extraction: LetterExtraction | null;
+  // Independent of both — grounded on document text + whatever extraction
+  // produced, but does not require extraction to have succeeded.
+  explanation: ExplanationResult | null;
 }
 
 export interface Job {

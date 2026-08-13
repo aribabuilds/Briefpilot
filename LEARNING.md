@@ -1262,3 +1262,115 @@ AO" (the letter's actual wording) got flagged `unrecognized_legal_reference` bec
 whitelist regex only recognizes the `§` symbol, not the spelled-out German word "Paragraph" — a real
 gap in the whitelist, not a bug in the flagging logic, and exactly the kind of finding M13's
 eventual real-data tuning pass exists to catch.
+
+---
+
+## M15 — Grounded explanation: readability, advice linter, disclaimer *(done)*
+
+### Plan Gate
+
+**What.** Retire the unused M1 `summarize` placeholder (0 real callers, 0 tests) in favor of a real
+`explain_document` operation across all 3 providers, grounded in the letter text plus the
+already-extracted fields. Two independent, non-negotiable safeguards against giving legal advice
+(RDG risk): the prompt itself, and a deterministic `advice_linter.py` that checks the model's actual
+output. `readability.py` computes word count + Flesch Reading Ease against the ≤200-word/B1 target.
+Wired into `JobService` as a third independent best-effort step. Frontend gets a persistent
+`Disclaimer` and an `ExplanationCard` that shows a visible warning, never hides the text, when either
+check fails.
+
+**Files touched.** `backend/app/schemas/ai.py` (removed `Summarization*`, added
+`DocumentExplanation*`), `backend/app/schemas/explanation.py` (new), `backend/app/services/ai/base.py`,
+all 3 providers, `backend/app/services/ai/prompts/explain.py` (new),
+`backend/app/services/ai/explanation_parsing.py` (new), `backend/app/services/readability.py` (new),
+`backend/app/services/advice_linter.py` (new), `backend/app/services/job_service.py`,
+`frontend/src/components/Disclaimer.tsx` (new), `frontend/src/components/ExplanationCard.tsx` (new),
+`frontend/src/app/result/[id]/page.tsx`, `docs/adr/0007-grounded-explanation-and-the-advice-linter.md`.
+
+**The trade-off.** One safeguard (the prompt) versus two (prompt + linter). Chose two, deliberately
+redundant: `response_mime_type="application/json"` was already proven, live, not to be reliably
+honored by the actual model in use (this same session's bug 3) — direct evidence that trusting a
+model's instructions to hold perfectly, unchecked, is not a safe assumption anywhere in this
+codebase, and the least acceptable place to make that exception is the one feature with real legal
+exposure. Full reasoning in ADR-0007.
+
+### Decisions log
+
+#### D36 — `summarize` deleted outright, not deprecated alongside `explain_document`
+
+**What.** The M1 `SummarizationRequest`/`SummarizationResult`/`AIService.summarize` trio — zero real
+callers, zero tests, ever — was removed entirely rather than left in place next to the new
+`explain_document`.
+
+**Why.** It wasn't actually usable for M15's need (grounding in extracted fields, not just a content
+string), and keeping unused, misleading code around "in case something needs it later" is exactly
+what ADR-0004 already rejected once for `DocumentExtractionResult`: two names for one concept,
+forever, is worse than deleting speculative code nothing depends on.
+
+**Interview angle.** *"Why not keep summarize as a separate, simpler operation for future use?"*
+YAGNI — a method with genuinely zero callers across the entire codebase's life isn't validated design,
+it's a guess that was never spent. If a real future need for plain summarization (not grounded
+explanation) appears, it gets designed against that real need, the same way `explain_document` itself
+was designed against M15's actual requirement instead of contorting the old placeholder to fit.
+
+#### D37 — Readability and the advice linter run on the model's output, not inside the prompt's contract
+
+**What.** `assess_readability` and `find_advice_phrases` are pure functions in `services/`, called by
+`JobService` after `explain_document` returns — not something the AI adapter or the prompt computes
+or self-reports.
+
+**Why.** Same split M9/M10/M11 established for extraction: what the model *claims* (the raw
+`DocumentExplanationResult.explanation` string) versus what can be independently *verified* about
+that claim (word count, Flesch score, advice phrases) are kept as separate fields computed by
+separate, independently-testable code — never folded into a single value the frontend has to trust
+blindly. A model cannot be trusted to accurately self-report whether its own output violates a
+constraint it was told to follow; that's exactly the case this whole codebase's validator pattern
+exists to cover.
+
+**Interview angle.** *"Why compute Flesch Reading Ease yourself instead of asking the model to
+self-report a readability score?"* Because asking the model to grade its own homework has no
+guarantee of correlating with the actual text it produced — a deterministic, well-defined formula
+computed independently is falsifiable and reproducible; a self-reported number is neither.
+
+#### D38 — A flagged explanation is still shown, in full, with the flag attached
+
+**What.** When `advice_phrases_found` is non-empty, or the explanation exceeds 200 words, or its
+Flesch score is below target, `ExplanationCard` still renders the complete, unmodified text — it adds
+a visible warning below it, it does not truncate, rewrite, or hide the explanation.
+
+**Why.** Truncating prose risks cutting it off mid-sentence and changing its meaning; "simplifying"
+text algorithmically without a second LLM call isn't achievable deterministically, and a second LLM
+call reintroduces the exact grounding risk being guarded against, while also spending real free-tier
+quota (a genuinely scarce resource this session ran out of) on a problem a flag already communicates
+honestly. This mirrors D14 (M6): withholding OCR text below a confidence threshold was the right call
+there because the text was actively unreliable; here, the text is likely still an accurate
+description that merely also contains a phrase worth a human's attention — a different situation,
+correctly given a different (flag, don't hide) treatment.
+
+**Interview angle.** *"Isn't shipping a flagged advice-like sentence to the user risky?"* The flag is
+the safety mechanism, not a decoration — a visible, specific warning next to a phrase like "you
+should pay now" is a materially different risk posture than the same phrase presented with no warning
+at all. The alternative (silently blocking the whole explanation) would make a partially-good
+explanation unavailable over one flagged sentence, which is a worse outcome for a user who still needs
+to understand the rest of the letter.
+
+### Review questions
+
+1. **Read the code.** `job_service.py`'s explanation step falls back to `_empty_extraction()` when
+   `result.extraction` is `None`. Trace through exactly when that happens — list the 2 distinct
+   scenarios — and explain why an all-null `LetterExtraction` is still valid input to
+   `build_explanation_user_message` rather than something that should skip explanation entirely.
+2. **Design.** `MIN_FLESCH_READING_EASE = 60.0` is a module-level constant with no real-user
+   validation yet (the docstring says so directly). What would you actually need to collect, from
+   whom, before you could defend changing this number in a code review?
+3. **Practice.** `advice_linter.py`'s docstring explicitly calls itself "a floor, not a guarantee."
+   Name one advice-giving phrasing a determined model could produce that would slip past every
+   pattern in `_ADVICE_PATTERNS` today, and say what (if anything) could catch it instead.
+
+### Teach-back
+
+> **"Two independent checks catch what one check, however well-designed, might miss."**
+Explain why relying only on the explanation prompt's own no-advice instructions would have been
+insufficient here — using this session's own evidence (a live Gemini call that didn't honor
+`response_mime_type="application/json"`) to argue why "the instructions should work" is not the same
+claim as "the instructions did work," and why a product with real legal exposure needs the second
+claim, verified, not just the first, hoped.

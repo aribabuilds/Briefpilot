@@ -10,15 +10,22 @@ import structlog
 
 from app.config.settings import get_settings
 from app.repositories.job_repository import InMemoryJobRepository, JobRepository
-from app.schemas.ai import DocumentExtractionRequest
+from app.schemas.ai import (
+    DocumentExplanationRequest,
+    DocumentExplanationResult,
+    DocumentExtractionRequest,
+)
 from app.schemas.classification import ClassificationRequest, ClassificationResult
-from app.schemas.extraction import LetterExtraction
+from app.schemas.explanation import ExplanationResult
+from app.schemas.extraction import ExtractedField, LetterExtraction
 from app.schemas.job import Job, JobResult, JobStatus
 from app.schemas.ocr import OcrDocument
+from app.services.advice_linter import find_advice_phrases
 from app.services.ai import get_ai_service
 from app.services.document_pipeline import build_document
 from app.services.ocr import TesseractOcrService
 from app.services.quality import assess_quality
+from app.services.readability import assess_readability
 from app.services.source_span_linking import link_source_spans
 from app.services.validators import validate_extraction
 
@@ -26,11 +33,13 @@ logger = structlog.get_logger(__name__)
 
 # The pipeline reduced to what the job layer needs: bytes + content type -> document.
 DocumentRunner = Callable[[bytes, str], OcrDocument]
-# Likewise reduced for classification and extraction: text in, a result out.
-# JobService never imports AIService or knows an LLM is involved — same seam
-# as DocumentRunner.
+# Likewise reduced for classification, extraction, and explanation: text (and,
+# for explanation, the already-extracted fields) in, a result out. JobService
+# never imports AIService or knows an LLM is involved — same seam as
+# DocumentRunner.
 ClassifierRunner = Callable[[str], ClassificationResult]
 ExtractorRunner = Callable[[str], LetterExtraction]
+ExplainerRunner = Callable[[str, LetterExtraction], DocumentExplanationResult]
 
 
 class Executor(Protocol):
@@ -59,6 +68,7 @@ class JobService:
         min_word_count: int,
         classifier: ClassifierRunner | None = None,
         extractor: ExtractorRunner | None = None,
+        explainer: ExplainerRunner | None = None,
     ) -> None:
         self._repository = repository
         self._runner = runner
@@ -67,6 +77,7 @@ class JobService:
         self._min_word_count = min_word_count
         self._classifier = classifier
         self._extractor = extractor
+        self._explainer = explainer
 
     def create_job(self, *, filename: str, content: bytes, content_type: str) -> Job:
         job = Job(
@@ -131,6 +142,30 @@ class JobService:
             except Exception:  # noqa: BLE001 - best-effort; never fail the job over this
                 logger.warning("extraction_failed", job_id=job_id, exc_info=True)
 
+        # Explanation is likewise best-effort and independent of the other two
+        # -- grounded on document.text plus whatever extraction produced
+        # (falling back to an all-null extraction if extraction itself
+        # failed or is unconfigured, still valid grounding input per
+        # CLAUDE.md §1.2). Readability and the advice-phrase linter run here,
+        # against the model's actual output, not inside the AI adapter --
+        # same split as source-span linking/validation for extraction.
+        if self._explainer is not None:
+            try:
+                grounding = result.extraction or _empty_extraction()
+                raw = self._explainer(document.text, grounding)
+                readability = assess_readability(raw.explanation)
+                explanation = ExplanationResult(
+                    text=raw.explanation,
+                    word_count=readability.word_count,
+                    flesch_reading_ease=readability.flesch_reading_ease,
+                    exceeds_word_limit=readability.exceeds_word_limit,
+                    below_readability_target=readability.below_readability_target,
+                    advice_phrases_found=find_advice_phrases(raw.explanation),
+                )
+                result = result.model_copy(update={"explanation": explanation})
+            except Exception:  # noqa: BLE001 - best-effort; never fail the job over this
+                logger.warning("explanation_failed", job_id=job_id, exc_info=True)
+
         self._update(job_id, status=JobStatus.DONE, result=result)
 
     def _update(
@@ -161,6 +196,17 @@ def _summarize(filename: str, document: OcrDocument) -> JobResult:
     )
 
 
+def _empty_extraction() -> LetterExtraction:
+    return LetterExtraction(
+        sender=ExtractedField(value=None, confidence=0.0),
+        letter_date=ExtractedField(value=None, confidence=0.0),
+        deadline=ExtractedField(value=None, confidence=0.0),
+        amount=ExtractedField(value=None, confidence=0.0),
+        legal_references=ExtractedField(value=None, confidence=0.0),
+        required_actions=ExtractedField(value=None, confidence=0.0),
+    )
+
+
 def _classify(text: str) -> ClassificationResult:
     # get_ai_service() is only called here, per job, not at startup -- a
     # missing GEMINI_API_KEY (or any other provider misconfiguration) surfaces
@@ -175,6 +221,13 @@ def _extract(text: str) -> LetterExtraction:
     # app startup.
     ai_service = get_ai_service()
     return asyncio.run(ai_service.extract_document(DocumentExtractionRequest(content=text)))
+
+
+def _explain(text: str, extraction: LetterExtraction) -> DocumentExplanationResult:
+    # Same lazy get_ai_service() call as _classify/_extract.
+    ai_service = get_ai_service()
+    request = DocumentExplanationRequest(content=text, extraction=extraction)
+    return asyncio.run(ai_service.explain_document(request))
 
 
 @lru_cache
@@ -206,4 +259,5 @@ def get_job_service() -> JobService:
         min_word_count=settings.min_word_count,
         classifier=_classify,
         extractor=_extract,
+        explainer=_explain,
     )

@@ -1,21 +1,28 @@
 from openai import AsyncOpenAI
 
-from app.schemas.ai import DocumentExtractionRequest, SummarizationRequest, SummarizationResult
+from app.schemas.ai import (
+    DocumentExplanationRequest,
+    DocumentExplanationResult,
+    DocumentExtractionRequest,
+)
 from app.schemas.classification import ClassificationRequest, ClassificationResult
 from app.schemas.extraction import LetterExtraction
 from app.services.ai.base import AIService
 from app.services.ai.classification_parsing import parse_classification_response
+from app.services.ai.explanation_parsing import parse_explanation_response
 from app.services.ai.extraction_parsing import parse_letter_extraction
 from app.services.ai.prompts.classify import (
     CLASSIFICATION_SYSTEM_INSTRUCTION,
     build_classification_user_message,
 )
+from app.services.ai.prompts.explain import (
+    EXPLANATION_SYSTEM_INSTRUCTION,
+    build_explanation_user_message,
+)
 from app.services.ai.prompts.extract import (
     EXTRACTION_SYSTEM_INSTRUCTION,
     build_extraction_user_message,
 )
-
-_SUMMARIZATION_INSTRUCTIONS = "Summarize the following text."
 
 
 class OpenAIService(AIService):
@@ -33,17 +40,20 @@ class OpenAIService(AIService):
         )
         return parse_letter_extraction(response.choices[0].message.content or "")
 
-    async def summarize(self, request: SummarizationRequest) -> SummarizationResult:
+    async def explain_document(
+        self, request: DocumentExplanationRequest
+    ) -> DocumentExplanationResult:
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=[
-                {"role": "system", "content": _SUMMARIZATION_INSTRUCTIONS},
-                {"role": "user", "content": request.content},
+                {"role": "system", "content": EXPLANATION_SYSTEM_INSTRUCTION},
+                {
+                    "role": "user",
+                    "content": build_explanation_user_message(request.content, request.extraction),
+                },
             ],
-            max_tokens=request.max_length,
         )
-        summary = response.choices[0].message.content or ""
-        return SummarizationResult(summary=summary)
+        return parse_explanation_response(response.choices[0].message.content or "")
 
     async def classify_document(self, request: ClassificationRequest) -> ClassificationResult:
         response = await self._client.chat.completions.create(

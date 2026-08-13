@@ -4,6 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 from app.schemas.classification import DocumentType
+from app.schemas.explanation import ExplanationResult
 from app.schemas.extraction import LetterExtraction
 
 
@@ -33,6 +34,10 @@ class JobResult(BaseModel):
     # Null-not-guess (M10): extraction is best-effort and independent of
     # classification -- either can succeed or fail on its own.
     extraction: LetterExtraction | None = None
+    # Null-not-guess (M15): explanation is best-effort and independent of
+    # classification -- grounded on document.text plus whatever extraction
+    # produced (possibly all-null), never blocking the job either.
+    explanation: ExplanationResult | None = None
 
 
 class Job(BaseModel):
