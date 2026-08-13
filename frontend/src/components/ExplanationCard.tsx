@@ -1,3 +1,4 @@
+import { GlossaryText } from "@/components/GlossaryText";
 import type { ExplanationResult } from "@/types/job";
 
 interface ExplanationCardProps {
@@ -14,7 +15,7 @@ export function ExplanationCard({ explanation }: ExplanationCardProps) {
         In plain English
       </h2>
       <p className="text-sm leading-relaxed text-neutral-800 dark:text-neutral-200">
-        {explanation.text}
+        <GlossaryText text={explanation.text} />
       </p>
       {readabilityFlagged && (
         <p className="text-xs text-amber-600 dark:text-amber-400">

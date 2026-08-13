@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ActionChecklist } from "@/components/ActionChecklist";
 import { Disclaimer } from "@/components/Disclaimer";
 import { ExplanationCard } from "@/components/ExplanationCard";
 import { ExtractionSummary } from "@/components/ExtractionSummary";
 import { RetakePrompt } from "@/components/RetakePrompt";
+import { buildChecklist } from "@/lib/checklist";
 import { formatDocumentType } from "@/lib/documentType";
 import { getJob } from "@/services/api";
 import type { Job } from "@/types/job";
@@ -122,6 +124,7 @@ function renderState(state: ViewState) {
           </div>
           <Disclaimer />
           {result?.explanation && <ExplanationCard explanation={result.explanation} />}
+          {result?.extraction && <ActionChecklist items={buildChecklist(result.extraction)} />}
           {result?.extraction && <ExtractionSummary extraction={result.extraction} />}
           <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
             {result?.text || "(no text found)"}
