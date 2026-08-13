@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     debug: bool = True
     log_level: str = "INFO"
     api_v1_prefix: str = "/api/v1"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # NoDecode: pydantic-settings otherwise tries to JSON-decode any list-typed
+    # env value before our validator below ever runs, which rejects a plain
+    # comma-separated string like ".env"'s CORS_ORIGINS=http://localhost:3000.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     database_url: str = "postgresql://briefpilot:briefpilot@localhost:5432/briefpilot"
 
     # Upload guard. Basic bound for the walking skeleton; streaming abuse guards
