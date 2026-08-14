@@ -2342,3 +2342,100 @@ Explain why both real gaps M28 found (`make`, the Tesseract language pack) were 
 already knew how to work around without ever writing them down — and why that makes them *more*
 dangerous to a new user, not less, despite (or because of) being invisible in the owner's own daily
 use of the project.
+
+---
+
+## M29 — Launch checklist *(done)*
+
+### What actually happened
+
+Built the checklist by auditing against real runs, not by summarizing what was already believed to
+be true — the same discipline M23 and M26 applied. That audit surfaced the milestone's actual finding:
+`git log origin/main..HEAD` showed local `main` 14 commits ahead of `origin/main`, which was frozen at
+M14 (2026-08-13). Everything from M15 through M28 — over half the project — existed only locally, had
+never run through the real GitHub Actions CI, and had not been reviewed by the owner despite the
+"full speed, review later" authorization covering exactly that work.
+
+### Decisions log
+
+#### D61 — The push decision was surfaced as a question, not resolved silently in either direction
+
+**What.** Rather than push 14 unreviewed commits unilaterally (declaring the launch checklist "done"
+on the strength of local runs alone), or silently leave the repo stale and mark the milestone blocked,
+the gap was written up in `docs/launch-checklist.md` and put to the owner directly: push now and
+review in parallel, hold everything until M30, or take over the push decision entirely.
+
+**Why.** This is squarely inside the "explicit permission required" category this session operates
+under — pushing code is visible to others and not fully reversible in spirit (a public repo update),
+and 14 commits crossed from "routine sync" into "a real publication decision" the moment the review
+gap became that large. The right call wasn't picking the most efficient path (push immediately,
+keep the checklist moving) — it was recognizing that *this specific* push carried more weight than
+the routine commits earlier in the session, and that weight belonged to the owner's judgment, not a
+default.
+
+**Interview angle.** *"Every other commit this session was made without asking — why did this one
+need a question?"* Scope and reversibility. A single milestone's commit affects that milestone; 14
+commits spanning half the project's feature surface, none of them reviewed, crossing from local-only
+to publicly-visible-on-GitHub, is a different category of action even though the mechanism (`git
+push`) is identical. The lesson generalizes past git: the same action (a push, a send, a delete) can
+sit on either side of a permission boundary depending on its actual blast radius in context, not just
+its type.
+
+**Resolution.** Owner chose "push now, keep going." Pushed (`8c898bf`); GitHub Actions confirmed
+running against the full commit range for the first time since M14 (verified via the public API, not
+assumed).
+
+### Review questions
+
+1. **Read the code.** `docs/launch-checklist.md`'s functionality section cites specific verification
+   methods for each claim (curl, Playwright, a fresh venv). Pick one claim and trace it back to the
+   actual test or live-verification step that backs it — is the citation specific enough to actually
+   re-run the check yourself, or does it just gesture at "this was checked at some point"?
+2. **Design.** The checklist explicitly scopes "monitored" down to health-endpoint + structured logs
+   given no hosted deployment. If a free hosting tier is ever proposed and approved (per CLAUDE.md
+   §3's escalation protocol), what's the smallest real addition that would make "monitored" mean
+   something closer to its usual sense, without violating the zero-cost mandate?
+3. **Practice.** D61 argues the push decision needed explicit permission because of its scope, not
+   because pushing is inherently risky. Construct a counter-scenario: a single-commit push that
+   *should* still require asking first, despite being small — what property would make it warrant a
+   question anyway?
+
+### Teach-back
+
+> **"The size of the blast radius, not the type of the action, is what decides whether to ask first."**
+Explain why routine commits this session never required a question but this particular push did,
+even though `git push` is the same command every time — and connect it to how you'd decide, on a
+different project, when an otherwise-routine action has quietly become a bigger decision than it
+started out as.
+
+## M30 — Retrospective, launch post, Sprint-5 grooming *(partial — publishing is the owner's task)*
+
+`docs/retro.md` closes the loop LEARNING.md's 29 milestone-level entries opened: not a summary of
+what shipped (`PROGRESS.md` already has that), but the handful of things that would still be true
+lessons on a completely different project — the cached-singleton bug class recurring three times
+under three different names, deterministic output-side checks consistently outperforming prompt
+instructions, documentation passes that insist on being checkable finding real bugs feature work
+never touched. `docs/linkedin-posts/02-launch-retrospective.md` follows post #1's established
+format (concrete numbers, no hype, explicitly marked draft-only). `BACKLOG.md`'s Sprint-5 candidates
+grew with what this session specifically learned, not generic post-MVP wishlist items: golden-letter
+collection as its own standing process (four separate milestones re-hit the same wall), frontend
+fresh-install verification in CI (closing M28's backend/frontend asymmetry), and reconciling the
+Postgres/Docker scaffold M26 found rather than leaving it flagged indefinitely.
+
+**What this milestone deliberately didn't do**: publish anything. The retro, the LinkedIn draft, and
+the backlog grooming are all real, finished artifacts — but "share the finished project... publicly"
+is, like M7's demo recording and M21's phone tests, an action only the owner can actually take.
+Marked **partial**, matching that same honest split, not **done**. No Decisions/Review/Teach-back
+section — this milestone was synthesis and curation of decisions already made and reviewed elsewhere
+in this file, not a new one of its own.
+
+---
+
+## Closing note
+
+M1 through M29 are now **done** or honestly **blocked**/**partial** with the reason stated — the
+milestone plan CLAUDE.md's execution plan laid out is complete. What remains is entirely the owner's:
+review the 29 milestones' worth of decisions and review questions accumulated here (many still
+unanswered, by design, under "full speed, review later"), record real phone-test sessions (M21),
+collect real golden letters (M12/M13/M25), finish and publish the demo video (M27) and launch post
+(M30), and decide what — if anything — from `BACKLOG.md`'s Sprint-5 candidates comes next.

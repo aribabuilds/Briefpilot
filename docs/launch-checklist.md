@@ -65,19 +65,19 @@ assumed from having built the thing.
 - Docker Compose / Postgres: present in the repo, explicitly marked unverified against the current
   in-memory-only implementation (M26)
 
-## The actual launch blocker this checklist found
+## The launch blocker this checklist found — resolved
 
-**The public GitHub repo is 14 commits behind local `main` — frozen at M14 (2026-08-13).**
+**The public GitHub repo was 14 commits behind local `main`, frozen at M14 (2026-08-13).**
 Everything from M15 onward (grounded explanation, checklist/glossary, document viewer,
-tap-to-highlight, the full regression suite, one-click delete, the privacy page, and all of M24's
-hardening) exists only locally. A hiring manager visiting the repo right now would see roughly half
-the project. GitHub Actions has not run against any of this work — "CI green" above is true of local
-runs (ruff/black/isort/mypy/pytest, all re-verified in a fresh venv for M28) but has not been
-confirmed against the actual CI environment, since nothing has triggered it since M14.
+tap-to-highlight, the full regression suite, one-click delete, the privacy page, M24's hardening, and
+the M26 README rewrite) existed only locally — a hiring manager visiting the repo would have seen
+roughly half the project. Surfaced here rather than pushed silently, since it also meant that work
+had not yet been reviewed by the owner under the "full speed, review later" authorization.
 
-This also means 14 commits' worth of work — everything built under the "full speed, review later"
-authorization from M11 onward — has not yet been reviewed by the owner. Pushing makes it public
-before that review happens. **Not pushed. This is the owner's call, not something to do silently.**
+**Resolved 2026-08-14**: owner explicitly chose to push now and review in parallel rather than hold
+everything until M30. `origin/main` is caught up (`8c898bf`) — GitHub Actions will run against this
+work for the first time since M14. Once it reports, that becomes the real "CI green" confirmation;
+until then, the checkmarks above are local-run evidence, not yet cloud-confirmed.
 
 ## Monitoring — what actually exists (no hosted target, per ADR-0001/ADR-0010)
 

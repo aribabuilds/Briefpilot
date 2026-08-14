@@ -57,6 +57,10 @@ Never cut: validators, eval suite, deletion, disclaimer.
 | Active learning from corrections | Depends on the above |
 | Letter-type auto-router to specialist prompts | Only worth it beyond ~8 doc types |
 | Deadline calendar export (.ics) | Small, high user value, zero architectural risk |
+| Golden-letter collection as its own tracked process | M12/M13/M21/M25 all blocked on the same thing (real letters/testers) and each re-explained the same wall — worth a lightweight standing process (a recurring reminder, a simple intake form) rather than re-discovering the blocker at every dependent milestone |
+| Frontend fresh-install verification in CI | M28 verified the backend from a genuinely fresh venv but couldn't safely do the same for the frontend without risking the owner's live dev session. A CI job (or a scripted local check using a disposable clone) that does a true `npm ci` from a clean checkout would close that asymmetry properly |
+| Reconcile or remove `docker-compose.yml`/Postgres scaffold | M26 found it, this doesn't fix it — either wire real Postgres behind `JobRepository`/`DocumentStore` (see the Production Feature row above) or delete the unconnected scaffold so the repo doesn't describe an architecture that isn't real. Not this session's call to make unilaterally |
+| Strengthen prompt-injection defense past delimiter + instruction (M24) | Current defense (`wrap_untrusted_content`) is honestly scoped as a mitigation, not a guarantee, per ADR-0010. A structured-output mode (where the SDK enforces schema conformance rather than the model choosing to comply) would reduce reliance on the model reading the instruction correctly, if/when the provider SDKs support it well enough to trust |
 
 ---
 
