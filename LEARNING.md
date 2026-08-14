@@ -1607,3 +1607,97 @@ Explain the difference between ADR-0008 punting on the deskew-alignment problem 
 it, versus explicitly deciding "raw image for now, here's exactly what would need to be true to
 revisit this" — and why the second one is real engineering judgment even though the code does the
 same thing either way today.
+
+---
+
+## M19 — Tap a field, see it highlighted *(done)*
+
+### Plan Gate
+
+**What.** `ExtractionSummary` rows become real buttons; tapping one highlights that specific field's
+`source_span` in `DocumentViewer` (distinct from M18's permanent faint boxes) and auto-scrolls to
+its page. A field with no `source_span` shows a verify-manually prompt instead of a highlight —
+there's nothing real to point at.
+
+**Files touched.** `frontend/src/components/ExtractionSummary.tsx` (clickable rows),
+`frontend/src/components/DocumentViewer.tsx` (selection, highlight, scroll, prompt),
+`frontend/src/app/result/[id]/page.tsx` (new `DoneView` component holding the selection state).
+
+**The trade-off.** Where should "which field is selected" live? `ExtractionSummary` and
+`DocumentViewer` are siblings in the render tree — neither can hold state the other needs to react
+to. Chose to lift it into their nearest common parent, which meant extracting the "done" case out of
+`renderState` (a plain function, not a component) into a real component (`DoneView`) that can call
+`useState`. The alternative — reaching for a context provider or a state library — would be real
+over-engineering for one piece of state shared between two components three lines apart in the JSX.
+
+### Decisions log
+
+#### D44 — `renderState`'s "done" case became a component specifically because it needed a hook
+
+**What.** `DoneView` didn't exist before M19; `renderState`'s switch statement built the "done" JSX
+inline. It was pulled out into its own function *only* because `useState` needed a real component to
+attach to — `renderState(state)` is called directly (`renderState(state)` in JSX, not
+`<RenderState state={state} />`), so React never tracks it as a component instance, and ESLint's
+rules-of-hooks would (correctly) flag a hook inside it.
+
+**Why.** This is a case where a lint rule caught a real architectural question before it became a
+bug: putting `useState` in a function React doesn't render as a component wouldn't necessarily error
+immediately, but it would behave unpredictably across re-renders (hook state tied to call-site
+position in the *parent's* hook list, not a stable identity of its own) the first time `renderState`
+was called conditionally or the switch branched differently between renders.
+
+**Interview angle.** *"Why not just move the whole switch statement into a component instead of
+extracting only the 'done' case?"* Only one branch needed state — `loading`/`processing`/
+`low_quality`/`failed`/`error` are all stateless renders of already-known data. Converting the whole
+switch would work, but it's a bigger diff for the same result; extracting exactly the branch that
+needed a hook is the smaller, more legible change.
+
+#### D45 — The permanent overlay (M18) and the selected highlight (M19) are visually distinct, and both stay
+
+**What.** Every field with a `source_span` still gets M18's faint, static box. The newly-selected
+field gets a *second*, brighter, animated box drawn on top of it.
+
+**Why.** Removing the permanent overlay in favor of only-on-click boxes was considered and rejected:
+the faint boxes are a passive trust signal ("here's everywhere we found something"), while the
+bright pulsing one is an active answer to "show me *this specific* one." Collapsing them into one
+visual language would lose the passive signal for users who never click anything at all.
+
+**Interview angle.** *"Two overlapping absolutely-positioned overlays on the same element — how do
+you know the z-order and pointer-events don't fight each other?"* Both boxes use
+`pointer-events-none`, so neither can intercept clicks meant for the image or the page underneath;
+the brighter box is simply rendered after the faint ones in DOM order, which is sufficient for
+correct stacking without an explicit `z-index` since they share the same stacking context.
+
+#### D46 — The verify-manually prompt is a real design decision, not a placeholder for "nothing to show"
+
+**What.** Selecting a field with `source_span: null` doesn't just leave `DocumentViewer` unchanged
+— it renders an explicit `role="status"` message naming the situation.
+
+**Why.** Silence would be ambiguous: did the click register? Is something loading? Is this field
+just not verifiable? An explicit message answers all three at once, and does it in the same honest
+register as every other unverified-value signal in this codebase (the amber "unverified" badge in
+`ExtractionSummary`, the readability/advice-linter flags in `ExplanationCard`) — a consistent visual
+vocabulary for "we're telling you what we don't know," not a one-off.
+
+### Review questions
+
+1. **Read the code.** `DocumentViewer`'s `pageRefs` is a `useRef<Map<number, HTMLDivElement>>`, populated
+   via a callback ref that adds or deletes an entry on every render. Why a `Map` keyed by page number
+   instead of an array indexed by page, given `pageCount` is already known up front?
+2. **Design.** The selected-field highlight and the low-quality gate's withheld-text rule (M6, D14)
+   both refuse to show something the pipeline isn't confident about. Compare them: is
+   "don't highlight an unverified field" as strong a trust guarantee as "don't show low-confidence
+   OCR text," or is there a meaningful difference in what each one is actually protecting the user
+   from?
+3. **Practice.** `DoneView`'s `useEffect` scrolls to a page whenever `selectedSpan` changes, keyed
+   only on `[selectedSpan]`. Construct a scenario where clicking the *same* field twice in a row
+   would (or wouldn't) re-trigger the scroll, and explain why that's the correct behavior given how
+   object identity works in the dependency array.
+
+### Teach-back
+
+> **"A highlighted box and a 'please verify manually' message are the same feature, pointed at two different truths."**
+Explain why M19 treats "this field is exactly here" and "we genuinely don't know where this field
+is" as two outcomes of one interaction, rather than only building the happy path and leaving the
+unverified case to fail silently — and connect it to why that mirrors the extraction pipeline's own
+null-not-guess discipline one layer up, in the UI instead of the data.

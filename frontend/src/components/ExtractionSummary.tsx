@@ -3,6 +3,11 @@ import type { ExtractedField, LetterExtraction } from "@/types/job";
 
 interface ExtractionSummaryProps {
   extraction: LetterExtraction;
+  // M19: which field is currently highlighted in DocumentViewer, and the
+  // callback to change it. Optional so ExtractionSummary still works
+  // standalone (e.g. in a future context with no viewer to link to).
+  selectedKey?: keyof LetterExtraction | null;
+  onSelect?: (key: keyof LetterExtraction) => void;
 }
 
 const FIELD_LABELS: Record<keyof LetterExtraction, string> = {
@@ -35,7 +40,7 @@ function describeIssues(issues: string[]): string {
   return issues.map((issue) => VALIDATION_ISSUE_LABELS[issue] ?? issue).join("; ");
 }
 
-export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
+export function ExtractionSummary({ extraction, selectedKey, onSelect }: ExtractionSummaryProps) {
   const entries = (Object.keys(FIELD_LABELS) as (keyof LetterExtraction)[])
     .map((key) => ({ key, field: extraction[key] }))
     .filter(({ field }) => hasValue(field));
@@ -56,14 +61,26 @@ export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
       <dl className="flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800">
         {entries.map(({ key, field }) => {
           // Verified means source-span linking found this value in the
-          // actual OCR text (M10) — not yet clickable/highlightable, that's
-          // the M18/M19 overlay. This is the honesty signal in the meantime:
-          // an unverified value was capped in confidence for exactly this reason.
+          // actual OCR text (M10). Tapping any field (M19) scrolls
+          // DocumentViewer to it and highlights it when verified, or shows a
+          // "couldn't verify" prompt when it isn't -- the honesty signal
+          // either way: an unverified value was capped in confidence for
+          // exactly this reason.
           const verified = field.source_span !== null;
           const flagged = field.validation_issues.length > 0;
           const tier = confidenceTier(field.confidence);
+          const isSelected = selectedKey === key;
           return (
-            <div key={key} className="flex items-baseline justify-between gap-4 py-1.5">
+            <button
+              key={key}
+              type="button"
+              disabled={!onSelect}
+              onClick={() => onSelect?.(key)}
+              aria-pressed={isSelected}
+              className={`flex items-baseline justify-between gap-4 py-1.5 text-left ${
+                onSelect ? "cursor-pointer" : ""
+              } ${isSelected ? "-mx-2 rounded-lg bg-blue-50 px-2 dark:bg-blue-950" : ""}`}
+            >
               <dt className="text-xs text-neutral-500 dark:text-neutral-500">
                 {FIELD_LABELS[key]}
               </dt>
@@ -94,7 +111,7 @@ export function ExtractionSummary({ extraction }: ExtractionSummaryProps) {
                   </span>
                 )}
               </dd>
-            </div>
+            </button>
           );
         })}
       </dl>
