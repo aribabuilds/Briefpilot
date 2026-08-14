@@ -61,7 +61,9 @@ No Docker required. This is what's actually been run and verified throughout dev
 with the German language pack:
 
 ```bash
-# Windows: installer at https://github.com/UB-Mannheim/tesseract/wiki, then add to PATH
+# Windows: installer at https://github.com/UB-Mannheim/tesseract/wiki — tick
+# "German" under additional language data during setup, then add the install
+# dir (e.g. C:\Program Files\Tesseract-OCR) to PATH
 # macOS
 brew install tesseract tesseract-lang
 # Debian/Ubuntu
@@ -131,7 +133,8 @@ cd frontend && npm run test:e2e         # 6 Playwright specs, real rendered app,
 ```
 
 `make ci` runs everything CI runs (lint, typecheck, tests, frontend build) in CI's order, without
-Docker.
+Docker. `make` isn't installed on Windows by default (`choco install make`, or run the individual
+commands from the `Makefile` directly — every target is a thin wrapper, nothing is hidden).
 
 ## AI provider configuration
 

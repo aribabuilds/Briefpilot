@@ -2252,3 +2252,93 @@ or removed — a decision this session correctly didn't make unilaterally.
 Explain how writing an honest "how to run this" section surfaced a real, un-caught architecture
 deviation (Postgres never wired) that six months of feature milestones didn't — and what that implies
 about treating documentation passes as a form of testing, not just writing.
+
+---
+
+## M27 — Full-journey demo script *(partial — recording is the owner's task)*
+
+Video recording needs a real screen-capture tool, which isn't available here — same category of
+limit as M21's phone testers. `docs/demo-script-full-journey.md` supersedes the Sprint-1-only script
+with a full, timestamped ~3-minute shot list covering everything through M24. Automated screenshot
+capture was attempted through the Browser pane tooling but the pane wasn't rendering in this
+environment (screenshots kept timing out — a limitation, not a bug in the app); rather than fabricate
+stills or claim success, left both the recording and the screenshots to the owner — who, notably, had
+already started recording a real take mid-milestone (`Sprint 4 - video/1.webm` appeared on disk while
+this work was in progress). No Decisions/Review/Teach-back section — no code, following M13/M21's
+precedent.
+
+## M28 — Fresh-environment README verification *(partial)*
+
+### What actually happened
+
+No second physical machine exists in this environment, so "clean machine" became: a genuinely fresh
+Python venv, built from nothing already installed, isolated from the populated dev venv every other
+milestone's tests ran against. `pip install -r requirements-dev.txt` → ruff/black/isort/mypy/pytest
+(245 tests) → `uvicorn` boot → `/health`/`/version` respond — every step exactly as documented, zero
+silent deviation needed to make it work.
+
+That surfaced two real gaps, both fixed in the same README:
+
+1. **`make` was assumed available without qualification.** It isn't, on Windows, by default — a
+   standing Known Deviation on the owner's own machine that the README itself had never actually
+   accounted for. Added a one-line caveat pointing at the individual commands, mirroring what the
+   `Makefile`'s own top comment already says.
+2. **The Tesseract Windows install step didn't mention selecting the German language pack.** Without
+   it, `OCR_LANGUAGE=deu+eng` (the actual default) would silently produce garbage on every umlaut and
+   ß — a newcomer would get a running app that quietly mis-reads every real German letter, with no
+   error anywhere to point at why.
+
+**What didn't get the same treatment.** A parallel isolated frontend check was attempted (copying
+`frontend/` minus `node_modules` to run `npm ci` fresh) and aborted — the naive `cp -r` pulled in the
+*existing* 400MB+ `node_modules` before the exclusion could apply, and continuing risked disrupting
+the owner's own live `npm run dev` session running from that exact directory mid-recording. Frontend
+correctness here rests on it having built/linted/e2e-tested clean repeatedly across M20, M22, M23,
+and M26 from the same lockfile — real evidence, just not from a freshly-isolated copy the way the
+backend check was. Marked **partial**, not **done**, specifically because of that asymmetry: a
+milestone whose whole point is "prove this reproduces cleanly" shouldn't quietly claim more certainty
+for the frontend than it actually earned this pass.
+
+### Decisions log
+
+#### D60 — A gap that survives 27 milestones of use isn't necessarily rare — it's usually just unexercised
+
+**What.** Both real findings (`make` availability, the Tesseract language pack) are things every
+single person who has run this project so far — the owner, across dozens of sessions — already knew
+how to work around without ever writing it down, because they'd hit it once, fixed it locally, and
+moved on.
+
+**Why.** This is the same shape of finding as M26's Postgres discovery: gaps that don't block the
+person who already knows the workaround are invisible to that person's own testing, no matter how
+many times they run the project. The only thing that reliably surfaces them is literally starting
+from nothing and refusing to silently apply tribal knowledge — which is exactly what a fresh venv
+(and, ideally, a fresh machine) forces.
+
+**Interview angle.** *"If the owner already knew both of these, were they really bugs?"* Yes, for the
+audience this milestone is actually about — CLAUDE.md frames M26–M28 as being for a *hiring manager*
+or a *new developer*, not the owner. A gap the owner has memorized around is invisible to her own
+usage and still completely blocking for anyone else, which is precisely why "I can follow the README
+on a clean machine" is its own milestone instead of being assumed to fall out of the app simply
+working.
+
+### Review questions
+
+1. **Read the code.** The fresh-venv test used Python 3.14, not the README's stated "Python 3.13+."
+   `backend/pyproject.toml` pins `target-version = ["py313"]` for black/mypy. Why did running on 3.14
+   not surface any failure, and what would have to be true of the codebase for a 3.14-only feature to
+   slip in undetected by CI (which — check `.github/workflows/ci.yml` — pins its own version)?
+2. **Design.** The frontend check was abandoned specifically to avoid disrupting a live session in
+   the same directory. Is "don't touch a directory something else might be using" a good enough
+   general rule for when *not* to run a verification step, or does it just mean this kind of check
+   needs its own isolated worktree/clone from the start, regardless of what else happens to be
+   running?
+3. **Practice.** This milestone found real gaps using a fresh *dependency* environment, not a fresh
+   *operating system*. Name one class of bug that a Windows-only fresh-venv test structurally cannot
+   catch, that a real clean-OS test (a VM, a fresh WSL instance, a different machine entirely) could.
+
+### Teach-back
+
+> **"'It works on my machine' is true and useless at the same time — the interesting question is always *which* machine, and what it already has that yours doesn't."**
+Explain why both real gaps M28 found (`make`, the Tesseract language pack) were things the owner
+already knew how to work around without ever writing them down — and why that makes them *more*
+dangerous to a new user, not less, despite (or because of) being invisible in the owner's own daily
+use of the project.
