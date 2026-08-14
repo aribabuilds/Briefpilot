@@ -1,13 +1,14 @@
 import io
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 
 from app.config.settings import Settings, get_settings
 from app.schemas.job import Job, JobCreatedResponse
 from app.services.ingestion import IngestionError, rasterize
 from app.services.job_service import JobService, get_job_service
+from app.services.rate_limiter import RateLimiter, get_upload_rate_limiter
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -23,9 +24,62 @@ ALLOWED_CONTENT_TYPES = frozenset(
 UploadedFile = Annotated[UploadFile, File()]
 ServiceDep = Annotated[JobService, Depends(get_job_service)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+RateLimiterDep = Annotated[RateLimiter, Depends(get_upload_rate_limiter)]
 
 
-@router.post("", response_model=JobCreatedResponse, status_code=status.HTTP_201_CREATED)
+async def enforce_rate_limit(
+    request: Request,
+    limiter: RateLimiterDep,
+    settings: SettingsDep,
+) -> None:
+    """M24: guards the state-changing endpoints (upload, delete) against
+    abusive traffic. A dependency used only for its side effect (raises on
+    over-limit, returns nothing otherwise) -- the standard FastAPI pattern
+    for a guard that isn't itself a value any route handler needs."""
+    client_key = request.client.host if request.client else "unknown"
+    if not limiter.allow_now(client_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please wait a moment and try again.",
+            headers={"Retry-After": str(int(settings.rate_limit_window_seconds))},
+        )
+
+
+# M24: read in bounded chunks rather than one `await file.read()`. Neither
+# FastAPI nor Starlette caps request body size on their own, so an unbounded
+# single read would fully receive (and, past Starlette's SpooledTemporaryFile
+# threshold, spool to disk) an arbitrarily large malicious upload before the
+# size check downstream ever runs. Reading in chunks and stopping the moment
+# the running total exceeds the limit bounds the damage to roughly one
+# chunk past the limit, no matter how large the client claims (or tries) to
+# send.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024  # 1 MiB
+
+
+async def _read_bounded(file: UploadFile, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        # Reads the module-level constant on every call (not a bound default
+        # argument) specifically so tests can monkeypatch it to force a small
+        # chunk size and exercise the multi-chunk reassembly path without an
+        # actual multi-megabyte test fixture.
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_bytes:
+            break  # already over the limit; the caller rejects, exact size past it doesn't matter
+    return b"".join(chunks)
+
+
+@router.post(
+    "",
+    response_model=JobCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(enforce_rate_limit)],
+)
 async def create_job(
     file: UploadedFile,
     service: ServiceDep,
@@ -38,9 +92,7 @@ async def create_job(
             detail="Unsupported file type. Upload a PDF, JPEG, or PNG.",
         )
 
-    # Read once to measure size. Streaming size guards belong to hardening (M24);
-    # for the skeleton, bounding the in-memory read is enough to reject abuse.
-    contents = await file.read()
+    contents = await _read_bounded(file, settings.max_upload_bytes)
     if len(contents) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -74,7 +126,12 @@ async def get_job(
     return job
 
 
-@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    dependencies=[Depends(enforce_rate_limit)],
+)
 async def delete_job(
     job_id: str,
     service: ServiceDep,

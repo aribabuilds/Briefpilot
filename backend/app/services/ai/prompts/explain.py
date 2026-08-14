@@ -12,8 +12,10 @@ The same "don't just ask nicely, verify" discipline as null-not-guess
 """
 
 from app.schemas.extraction import LetterExtraction
+from app.services.ai.prompts import UNTRUSTED_CONTENT_INSTRUCTION, wrap_untrusted_content
 
-EXPLANATION_SYSTEM_INSTRUCTION = """You explain German official letters in plain English to an \
+EXPLANATION_SYSTEM_INSTRUCTION = (
+    """You explain German official letters in plain English to an \
 immigrant reader who may not read German well.
 
 Respond with strict JSON only, no markdown fences, no commentary, in exactly this shape:
@@ -31,6 +33,10 @@ Never write phrases like "you should", "I recommend", "I advise", "you are legal
 or state what is legally correct or advisable. Describe; do not counsel.
 - If a field is null (not found), do not guess or fill it in -- simply don't mention it.
 """
+    + "\n"
+    + UNTRUSTED_CONTENT_INSTRUCTION
+    + "\n"
+)
 
 
 def build_explanation_user_message(content: str, extraction: LetterExtraction) -> str:
@@ -41,6 +47,6 @@ def build_explanation_user_message(content: str, extraction: LetterExtraction) -
     known_fields = field_lines or "(nothing was confidently extracted from this letter)"
     return (
         "Explain this letter in plain English.\n\n"
-        f"Letter text:\n{content}\n\n"
+        f"Letter text:\n{wrap_untrusted_content(content)}\n\n"
         f"Already-extracted fields (for grounding, not exhaustive):\n{known_fields}"
     )

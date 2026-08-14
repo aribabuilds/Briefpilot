@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     retention_max_age_hours: float = 24.0
     retention_sweep_interval_seconds: float = 3600.0
 
+    # Rate limiting (M24): a lightweight in-memory sliding-window limiter,
+    # keyed by client IP, guards the two state-changing endpoints (upload,
+    # delete) against abusive traffic. No Redis -- consistent with the
+    # in-memory job/document stores this app already runs on (ADR-0001).
+    # 20/min comfortably covers a real user re-uploading a few misread
+    # photos in a row while still bounding a scripted flood.
+    rate_limit_max_requests: int = 20
+    rate_limit_window_seconds: float = 60.0
+
     # Default is the free-tier provider (CLAUDE.md §3: no paid API calls by
     # default). OpenAI/Azure remain available as an explicit opt-in — see
     # docs/adr/0003-free-tier-llm-default-and-aiservice-naming.md.

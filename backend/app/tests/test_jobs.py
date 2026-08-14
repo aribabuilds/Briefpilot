@@ -545,6 +545,31 @@ def test_deleting_twice_returns_404_the_second_time(client: TestClient) -> None:
     assert client.delete(f"/api/v1/jobs/{job_id}").status_code == 404
 
 
+# --- streaming size guard (M24) ---------------------------------------------
+
+
+def test_upload_content_is_preserved_byte_for_byte_when_read_in_small_chunks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Forces _read_bounded through many chunk iterations instead of one, to
+    # prove chunked reassembly doesn't corrupt, reorder, or truncate content
+    # -- without needing an actual multi-megabyte test fixture.
+    import app.api.jobs as jobs_module
+
+    monkeypatch.setattr(jobs_module, "_UPLOAD_CHUNK_BYTES", 4)
+
+    service = _service_with(lambda content, ct: _document("Finanzamt"))
+    _override_service(service)
+    body = b"%PDF-1.4 " + b"x" * 97  # 106 bytes, well over 4-byte chunks
+    job_id = client.post(
+        "/api/v1/jobs", files={"file": ("letter.pdf", body, "application/pdf")}
+    ).json()["id"]
+
+    stored = service.get_document(job_id)
+    assert stored is not None
+    assert stored[0] == body
+
+
 def test_oversize_file_returns_413(client: TestClient) -> None:
     _override_service(_service_with(lambda content, ct: _document("x")))
     _override_settings(max_upload_bytes=8)

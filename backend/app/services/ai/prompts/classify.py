@@ -10,6 +10,7 @@ measurement is deferred to M12/M13 once real letters exist.
 """
 
 from app.schemas.classification import DocumentType
+from app.services.ai.prompts import UNTRUSTED_CONTENT_INSTRUCTION, wrap_untrusted_content
 
 _DOC_TYPES = ", ".join(t.value for t in DocumentType)
 
@@ -20,6 +21,8 @@ Respond with strict JSON only, no markdown fences, no commentary:
 
 If the letter does not clearly match one of the specific types, or you are
 unsure, respond with "other" and a low confidence rather than guessing.
+
+{UNTRUSTED_CONTENT_INSTRUCTION}
 
 Examples (illustrative only, not real letters):
 - A letter from a "Finanzamt" about "Steuerbescheid", "Einkommensteuer", or a
@@ -40,4 +43,4 @@ Examples (illustrative only, not real letters):
 
 
 def build_classification_user_message(content: str) -> str:
-    return f"Classify this letter:\n\n{content}"
+    return f"Classify this letter:\n\n{wrap_untrusted_content(content)}"

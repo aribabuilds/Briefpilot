@@ -2020,3 +2020,130 @@ Explain why `/privacy` was written by reading `services/retention.py`, `main.py`
 `GeminiService` first, rather than by writing a standard privacy-policy template and then checking
 it roughly matched — and what CLAUDE.md means by "privacy claims = implementation" that a generically
 accurate-sounding privacy page would still fail.
+
+---
+
+## M24 — Hardening: rate limiting, streaming size guards, request logging, prompt-injection defense *(done)*
+
+### Plan Gate
+
+**What.** Four real pieces of hardening, one honest non-decision: an in-memory per-IP rate limiter
+on the two state-changing endpoints; upload reads switched from one unbounded `await file.read()` to
+bounded chunked reads that reject an oversized body without ever fully receiving it; a structured
+`http_request` log line per request through the existing M1 structlog pipeline; and a
+prompt-injection guardrail (delimiter + explicit instruction) wired into all three LLM prompts. The
+milestone plan's fifth item, an uptime monitor, was deliberately not built — there's no hosted
+deployment to watch (ADR-0001), so one would have nothing real to monitor.
+
+**Files touched.** New `services/rate_limiter.py`, `services/ai/prompts/__init__.py` (was empty);
+`api/jobs.py` (`_read_bounded`, `enforce_rate_limit`, wired onto both routes); `main.py`
+(`log_requests` middleware); `config/settings.py` (`rate_limit_*`); `services/ai/prompts/classify.py`
+/ `extract.py` / `explain.py` (delimiter + instruction wired in); new `tests/conftest.py`,
+`test_rate_limiter.py`, `test_rate_limit_api.py`, `test_request_logging.py`, `test_prompts.py`;
+`test_jobs.py` (streaming-read test). ADR-0010.
+
+**The trade-off.** How far "guardrails" should go for a pipeline that sends user-uploaded content to
+a third-party LLM: a dedicated prompt-injection classifier (a second LLM call screening input before
+the real one) versus a cheap, static defense (delimit the content, instruct the model not to treat it
+as instructions). Chose the cheap option deliberately — not because it's a complete defense (it
+isn't; a sufficiently motivated injection could still work), but because the real security boundary
+in this pipeline was never the prompt. It's the deterministic output-side checks
+(`validators.py`, `advice_linter.py`) that already don't trust the model's compliance with anything
+it was asked to do. A classifier call would add cost and a new attack surface of its own for a
+defense that isn't where this app's actual guarantees live.
+
+### Decisions log
+
+#### D55 — Chunked reads bound *received* bytes, not just *accepted* bytes
+
+**What.** `_read_bounded` reads the upload in 1 MiB chunks and stops the moment the running total
+exceeds `max_upload_bytes`, instead of the previous `await file.read()` (which reads to EOF
+regardless of size, then checks the length of what it got).
+
+**Why.** The old code's size check was real but late: a client sending a 5 GB body would have all 5
+GB received (and, past Starlette's `SpooledTemporaryFile` threshold, spooled to disk) before the
+`len(contents) > max_upload_bytes` check ever ran. Neither FastAPI nor Starlette enforces a body-size
+cap on its own. Reading in bounded chunks means the worst case is `max_upload_bytes` plus one chunk,
+no matter what the client sends or claims — the guard now bounds *received* data, not just what gets
+*accepted* afterward.
+
+**Interview angle.** *"Doesn't checking the `Content-Length` header up front make more sense than
+reading chunk-by-chunk?"* `Content-Length` is client-supplied and not authoritative — a client can
+lie (send a small declared length, then keep streaming), and some clients/proxies omit it
+(chunked transfer-encoding) or the ASGI server may not always populate it as a header available at
+this layer for every transport. Bounding the actual read is correct regardless of what the client
+claims; a `Content-Length` check would be a nice-to-have fast-path rejection on top of this, not a
+substitute for it.
+
+#### D56 — The rate limiter's test isolation problem mirrored M10's dependency-override bug, one layer up
+
+**What.** `get_upload_rate_limiter()` is `@lru_cache`'d, exactly like `get_job_service()`. Left
+unaddressed, that singleton's accumulated hit history would persist across the *entire pytest
+session* — dozens of unrelated tests issuing `POST`/`DELETE /jobs` from the same TestClient "IP"
+would eventually trip the real 20/min limit and start failing with 429s that have nothing to do with
+what they're testing. Fixed with a new `conftest.py` autouse fixture that calls
+`get_upload_rate_limiter.cache_clear()` before every test, giving each one a fresh, empty-history
+limiter.
+
+**Why.** This is the same root cause as the M10 dependency-override bug (a cached singleton with
+mutable state, shared across everything that resolves it) — just manifesting as cross-*test*
+pollution instead of cross-*request* staleness within one test. Recognizing the pattern meant the fix
+took minutes instead of chasing down mysterious, order-dependent 429s across the suite later.
+
+**Interview angle.** *"Why `cache_clear()` in a shared fixture instead of overriding
+`get_upload_rate_limiter` per test, the way `get_job_service` gets overridden everywhere else?"*
+Because most tests don't care about rate limiting at all — it's incidental to what they're testing.
+Requiring every test file that happens to call `POST /jobs` to also remember to stub out rate
+limiting would be exactly the kind of "you have to know an unrelated implementation detail to write a
+passing test" trap this project has consistently avoided (see M10's own post-merge fix). A shared
+autouse fixture makes the default safe without every test author needing to think about it;
+`test_rate_limit_api.py` is the one place that deliberately opts back into real enforcement, with its
+own small dedicated limiter instance.
+
+#### D57 — The prompt-injection defense is named honestly as partial, in the ADR and in code comments
+
+**What.** ADR-0010 and `services/ai/prompts/__init__.py`'s own docstring both say outright that
+`wrap_untrusted_content()`/`UNTRUSTED_CONTENT_INSTRUCTION` reduce risk, not eliminate it — and that
+`validators.py`/`advice_linter.py` remain the real backstop, unchanged by this milestone.
+
+**Why.** It would be easy to write this feature as "prompt injection: fixed" in `PROGRESS.md` and
+move on. That's not true, and CLAUDE.md's own posture throughout this project — null-not-guess,
+"don't just ask nicely, verify," honest failure analysis over polished claims — is exactly the
+standard that rules out overstating what a prompt-level instruction can guarantee. A model can be
+argued out of following an instruction; it's much harder to argue a Pydantic schema validator or a
+regex-based advice-phrase linter out of catching what it's built to catch.
+
+**Interview angle.** *"If you know a defense is incomplete, why ship it at all?"* Because
+defense-in-depth means each layer catches what the layers around it miss, not that any single layer
+has to be airtight alone. The delimiter/instruction layer costs nothing and closes off the *laziest*
+injection attempts (ones that don't even try to survive a sanitization step); the output-side
+validators catch what actually reaches the model's response regardless of whether the input-side
+defense held. Shipping the cheap layer while being honest about its limits is a stronger
+engineering posture than either skipping it (why leave free defense on the table?) or overselling it
+(why claim more than what's actually true?).
+
+### Review questions
+
+1. **Read the code.** `RateLimiter.allow()` takes `now` as a required keyword argument, and
+   `allow_now()` is a thin wrapper that supplies `time.monotonic()`. `services/retention.py::
+   purge_expired()` takes an analogous `now` parameter. What do these two clock-injection patterns
+   have in common, and why does `time.monotonic()` specifically (not `time.time()`) matter for the
+   rate limiter in a way it wouldn't for the retention sweep's `datetime.now(UTC)`?
+2. **Design.** `enforce_rate_limit` is applied per-route via `dependencies=[Depends(enforce_rate_limit)]`
+   rather than as global middleware covering every endpoint. `GET /jobs/{id}` and
+   `GET /jobs/{id}/pages/{n}` are *not* rate-limited. Is that a gap, or a deliberate scope decision —
+   and what's actually different about a polling `GET` versus an upload `POST` that would justify
+   treating them differently under an abuse model?
+3. **Practice.** `test_prompts.py` asserts that `UNTRUSTED_CONTENT_INSTRUCTION` is a substring of
+   each system instruction, and that `wrap_untrusted_content()`'s delimiter appears in each user
+   message. Given D57 says this defense can't be proven to work against a real model, what is this
+   test suite actually proving, and is it worth having anyway?
+
+### Teach-back
+
+> **"Some defenses are worth shipping even when you can't prove they work — as long as you don't pretend they do."**
+Explain the difference between `wrap_untrusted_content()`/`UNTRUSTED_CONTENT_INSTRUCTION` (a
+best-effort, unprovable input-side mitigation) and `validators.py`/`advice_linter.py` (a
+deterministic, fully-tested output-side guarantee) — and why ADR-0010 was written to name that
+difference explicitly rather than letting "we added prompt-injection guardrails" stand as an
+unqualified claim in `PROGRESS.md`.

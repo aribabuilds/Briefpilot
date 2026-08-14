@@ -11,7 +11,10 @@ positions, so it cannot honestly claim a bounding box. That link is computed
 separately once the pipeline has the OcrDocument to match against (M10).
 """
 
-EXTRACTION_SYSTEM_INSTRUCTION = """You extract structured fields from a German official letter.
+from app.services.ai.prompts import UNTRUSTED_CONTENT_INSTRUCTION, wrap_untrusted_content
+
+EXTRACTION_SYSTEM_INSTRUCTION = (
+    """You extract structured fields from a German official letter.
 
 Respond with strict JSON only, no markdown fences, no commentary, in exactly this shape:
 {
@@ -41,7 +44,11 @@ Output:
   "required_actions": {"value": ["Pay the amount by the deadline"], "confidence": 0.8}
 }
 """
+    + "\n"
+    + UNTRUSTED_CONTENT_INSTRUCTION
+    + "\n"
+)
 
 
 def build_extraction_user_message(content: str) -> str:
-    return f"Extract structured fields from this letter:\n\n{content}"
+    return f"Extract structured fields from this letter:\n\n{wrap_untrusted_content(content)}"

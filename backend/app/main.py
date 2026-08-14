@@ -1,11 +1,12 @@
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
@@ -56,6 +57,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """M24: one structured log line per request (method, path, status,
+    duration, client IP) -- the operational visibility layer CLAUDE.md §3
+    calls for (structured logs, no paid APM). Deliberately logs the path and
+    status only, never the request body: nothing here should ever carry the
+    text of a user's letter (see docs/privacy page's "what leaves this
+    server" claim -- this middleware has to actually honor it, not just
+    every individual log call downstream)."""
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = round((time.monotonic() - start) * 1000, 1)
+    logger.info(
+        "http_request",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+        client_ip=request.client.host if request.client else None,
+    )
+    return response
+
 
 app.include_router(api_router)
 
