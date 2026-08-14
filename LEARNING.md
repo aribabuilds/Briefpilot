@@ -1932,3 +1932,91 @@ already applies to its own tool-use decisions — the parallel isn't a coinciden
 Explain why `DeleteButton`'s re-fetch-and-confirm-404 step (D51) exists even though the backend
 already has its own passing tests for the same behavior, and connect it to why CLAUDE.md's rule is
 "privacy claims = implementation" rather than "privacy claims = intent."
+
+---
+
+## M23 — Privacy page, written from the code, not around it *(done)*
+
+### Plan Gate
+
+**What.** A static `/privacy` page, plus links to it from the landing page and every result page.
+The actual work wasn't writing generic privacy boilerplate — it was going back through M22's real
+implementation line by line and stating only what's literally true of it: in-memory-only storage
+(not "encrypted at rest," there's no "rest"), an hourly sweep against a 24h ceiling (not "instantly
+at 24h"), and a genuine third-party disclosure — the letter's OCR'd text is sent to Google's Gemini
+API — that a generic privacy template would have no way to know needed saying at all.
+
+**Files touched.** New `frontend/src/app/privacy/page.tsx`; `app/page.tsx` (footer link, tagline
+reworded); `app/result/[id]/page.tsx` (footer link); new `e2e/privacy.spec.ts`.
+
+**The trade-off.** A privacy *page* versus a privacy *section* folded into an existing page (e.g. a
+collapsible block on the landing page). Chose a separate route: `/privacy` is something a user might
+want to link to, bookmark, or read before ever uploading anything — folding it into the landing page
+would make it compete for attention with the upload form, exactly the pattern a real privacy notice
+shouldn't have to fight against to be read.
+
+### Decisions log
+
+#### D53 — The Gemini disclosure is written as a warning, not a footnote
+
+**What.** "What leaves this server" is its own section, stated in the second sentence as "a real
+third party seeing the content of your letter, and you should know that before uploading something
+sensitive" — not buried after the reassuring "no accounts, no tracking" claims.
+
+**Why.** CLAUDE.md §5.6 requires the privacy page to match the code, and the code's honest answer is
+that a government letter's actual text — someone's tax bill, an immigration deadline, a fine amount
+— leaves this server and reaches a third party's API. A privacy page that led with reassurance and
+mentioned this only in passing would be technically true and practically misleading, which is worse
+than omitting it entirely because it *looks* thorough while still failing the actual goal: a user
+making an informed decision before uploading.
+
+**Interview angle.** *"Isn't over-disclosing a real risk too — scaring users off a genuinely private-
+enough system?"* The bar CLAUDE.md sets isn't "make users comfortable," it's "match what the code
+does." If disclosing something true makes a reasonable user hesitate, that's information the system
+correctly gave them, not a UX failure to smooth over. The alternative — softening a true statement
+so it reads better — is exactly the failure mode "privacy claims = implementation" exists to rule
+out.
+
+#### D54 — "In-memory, not on disk" is stated as a consequence, not a feature
+
+**What.** The storage section doesn't say "we auto-delete after 24 hours" and stop there. It leads
+with the fact that nothing is written to a database or disk at all, and explicitly says a server
+restart clears everything *before* the 24h window would have.
+
+**Why.** Stopping at "auto-deleted within 24h" would describe the *ceiling* without mentioning the
+system also has no floor — in practice, given a demo-scale single process with no persistent
+volume, most documents disappear far sooner than 24h, on the next redeploy or crash. Saying only the
+ceiling implies a guarantee ("your data is definitely kept for up to 24h") that the actual
+architecture doesn't provide and was never designed to provide. This is the same instinct as ADR-0009
+naming its own approximation (hourly sweep vs. exact-24h) explicitly rather than rounding it away.
+
+**Interview angle.** *"Why is 'less retention than promised' worth calling out, when most privacy
+complaints are about systems keeping data too long, not too short?"* Because the standard being held
+to isn't "is this good for privacy" (a shorter, less predictable retention window trivially is) —
+it's "does this page accurately describe the system." An inaccurate claim in the *more*
+privacy-protective direction is still an inaccurate claim; a user who assumes their document will be
+retrievable for a day and finds it isn't has been told something false, even though the falseness
+favored them this time.
+
+### Review questions
+
+1. **Read the code.** `PrivacyPage` is a server component (no `"use client"` directive) that renders
+   entirely static content. `DeleteButton` and `ConnectionStatus`, by contrast, both need
+   `"use client"`. What's the actual mechanical reason one needs it and the others don't, and what
+   would break (or just get slower) if `"use client"` were added to `PrivacyPage` unnecessarily?
+2. **Design.** The Gemini disclosure names "classify, extract, and explain" as what the text is sent
+   for, but doesn't name Tesseract as also processing the letter, even though Tesseract reads the
+   actual image. Is that omission correct given the "What leaves this server" section's actual scope,
+   or is it a gap the page should close?
+3. **Practice.** `e2e/privacy.spec.ts` asserts on `page.getByText(/Google's Gemini API/)` — text
+   copy, not a `role`/`aria` attribute like most of this project's other Playwright assertions. What
+   does pinning an e2e test to exact prose cost the next time this page's copy gets edited, and is
+   that cost worth what the test is actually protecting against here?
+
+### Teach-back
+
+> **"A privacy page's job is to be falsifiable — every sentence on it should be something you could point at a line of code to check."**
+Explain why `/privacy` was written by reading `services/retention.py`, `main.py`'s sweep loop, and
+`GeminiService` first, rather than by writing a standard privacy-policy template and then checking
+it roughly matched — and what CLAUDE.md means by "privacy claims = implementation" that a generically
+accurate-sounding privacy page would still fail.

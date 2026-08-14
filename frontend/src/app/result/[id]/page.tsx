@@ -77,12 +77,20 @@ export default function ResultPage() {
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-white px-6 py-16 dark:bg-neutral-950">
       <div className="w-full max-w-2xl">{renderState(state)}</div>
       {hasJob && <DeleteButton jobId={id} />}
-      <Link
-        href="/"
-        className="text-sm text-neutral-500 underline-offset-4 hover:underline dark:text-neutral-400"
-      >
-        ← Upload another letter
-      </Link>
+      <div className="flex flex-col items-center gap-1">
+        <Link
+          href="/"
+          className="text-sm text-neutral-500 underline-offset-4 hover:underline dark:text-neutral-400"
+        >
+          ← Upload another letter
+        </Link>
+        <Link
+          href="/privacy"
+          className="text-xs text-neutral-400 underline-offset-4 hover:underline dark:text-neutral-600"
+        >
+          What happens to your data
+        </Link>
+      </div>
     </main>
   );
 }

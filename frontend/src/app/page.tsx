@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { UploadForm } from "@/components/UploadForm";
 
@@ -11,15 +13,23 @@ export default function Home() {
           BriefPilot
         </h1>
         <p className="text-lg text-neutral-600 dark:text-neutral-400">
-          AI Case Manager for German Bureaucracy
+          Understand your German mail in plain English
         </p>
         <p className="max-w-md text-sm text-neutral-500 dark:text-neutral-500">
           Upload a photo or PDF of an official German letter and get a plain-English explanation,
-          the deadlines that matter, and what to do next.
+          the deadlines that matter, and what to do next — with every claim traceable back to the
+          original text.
         </p>
       </div>
 
       <UploadForm />
+
+      <Link
+        href="/privacy"
+        className="text-xs text-neutral-400 underline-offset-4 hover:underline dark:text-neutral-600"
+      >
+        No account. Auto-deleted within 24h. What happens to your data →
+      </Link>
     </main>
   );
 }
