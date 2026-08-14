@@ -9,6 +9,7 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { ExplanationCard } from "@/components/ExplanationCard";
 import { ExtractionSummary } from "@/components/ExtractionSummary";
 import { RetakePrompt } from "@/components/RetakePrompt";
+import { SummaryCard } from "@/components/SummaryCard";
 import { buildChecklist } from "@/lib/checklist";
 import { formatDocumentType } from "@/lib/documentType";
 import { getJob } from "@/services/api";
@@ -106,7 +107,7 @@ function renderState(state: ViewState) {
           <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-                Extracted text
+                Your letter
               </h1>
               {result?.doc_type && (
                 <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
@@ -122,6 +123,7 @@ function renderState(state: ViewState) {
               {result ? Math.round(result.mean_confidence * 100) : 0}%
             </p>
           </div>
+          {result?.extraction && <SummaryCard extraction={result.extraction} />}
           <Disclaimer />
           {result?.explanation && <ExplanationCard explanation={result.explanation} />}
           {result?.extraction && <ActionChecklist items={buildChecklist(result.extraction)} />}

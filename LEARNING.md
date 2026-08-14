@@ -1460,3 +1460,64 @@ Explain why BriefPilot chose to hand-write 58 term definitions instead of asking
 unfamiliar words on the fly — and connect it to the exact same trade-off M11's § whitelist and M15's
 advice-phrase list already made, so a reader can see this isn't three separate decisions, it's one
 principle applied three times.
+
+---
+
+## M17 — One clear results page *(done — mostly a consolidation pass)*
+
+### Plan Gate
+
+**What.** By the time M17 came up, explanation (M15) and checklist (M16) already existed on the
+results page — this milestone's real remaining work was a `SummaryCard` (sender/deadline/amount at a
+glance, at the top of the page) and confirming the page actually holds together as "one clear results
+page" on a real mobile viewport, not just at desktop width.
+
+**Files touched.** New `frontend/src/components/SummaryCard.tsx`;
+`frontend/src/app/result/[id]/page.tsx` (wired it in, renamed the now-stale "Extracted text" header to
+"Your letter").
+
+**The trade-off.** Building new UI to prove mobile-readiness versus trusting Tailwind's responsive
+utility classes (already used throughout) to just work. Chose to actually measure it —
+`document.documentElement.scrollWidth` vs. `clientWidth` at a real 375px viewport — rather than assume
+responsive classes are sufficient just because they're present in the markup; a `grid-cols-3` that
+forgot its `sm:` prefix would look identical in the source and broken on a phone.
+
+### Decisions log
+
+#### D41 — Most of M17 was recognizing what was already done, not building new things
+
+**What.** Reviewing `PROGRESS.md`'s M17 requirements against the actual current state of the results
+page showed 3 of 5 listed items (explanation, checklist, honest processing/error states) already
+shipped in earlier milestones. Only the summary card and a mobile-width check were genuinely new.
+
+**Why.** Worth naming explicitly: the milestone list in `PROGRESS.md` was written before M15/M16
+existed, describing a results page that hadn't been built incrementally yet. Re-verifying already-built
+pieces against a later milestone's acceptance criteria — rather than either skipping the milestone
+entirely or rebuilding things that already work — is the honest middle path.
+
+**Interview angle.** *"Why not just mark M17 done automatically once M15 and M16 shipped, since they
+covered most of it?"* Because "the pieces exist" and "the page works as one coherent whole, including
+on a phone" are different claims — M17's actual job was verifying the second claim, not just checking
+that the first one's ingredients were present.
+
+### Review questions
+
+1. **Read the code.** `SummaryCard` filters out any row whose `value` is `null` before rendering.
+   Trace through what the card looks like when `sender`, `deadline`, and `amount` are *all* null —
+   confirm it matches `ExtractionSummary`'s empty-state pattern from M9, and explain why silently
+   rendering nothing (rather than an empty card with three dashes) is the more honest choice here.
+2. **Design.** Mobile-readiness was verified with one synthetic viewport check
+   (`scrollWidth`/`clientWidth` at 375px). What's the concrete gap between that and the DoD's real
+   requirement, "works on my phone" — and is that gap actually closed anywhere in the milestone plan,
+   or still open?
+3. **Practice.** The header rename ("Extracted text" → "Your letter") is a one-line change with no
+   test coverage anywhere. Why is that an acceptable gap for this specific change, when the same
+   absence of tests would be a real problem for, say, `readability.py`'s Flesch score formula?
+
+### Teach-back
+
+> **"Sometimes the honest version of 'is this milestone done' is admitting most of it was already done."**
+Explain why treating M15 and M16 as having quietly satisfied most of M17's requirements — rather than
+either padding the milestone with unnecessary new work to make it feel substantial, or skipping it
+outright — is the more defensible engineering call, and what that says about writing a milestone plan
+before the incremental order of implementation is fully known.
