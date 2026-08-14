@@ -74,6 +74,23 @@ async def get_job(
     return job
 
 
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def delete_job(
+    job_id: str,
+    service: ServiceDep,
+) -> Response:
+    """One-click delete (M22): removes both the job record and the raw
+    document bytes. A subsequent GET on this id returns 404 -- that's the
+    privacy claim (CLAUDE.md §5.6), verified here rather than just asserted."""
+    existed = service.delete_job(job_id)
+    if not existed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get(
     "/{job_id}/pages/{page_number}",
     response_class=Response,

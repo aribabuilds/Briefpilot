@@ -18,13 +18,7 @@ constrain later milestones do.
 | [0006](0006-eval-scoring-taxonomy-five-outcomes-not-a-boolean.md) | Eval scoring taxonomy: five outcomes, not a pass/fail boolean | Accepted | M12 |
 | [0007](0007-grounded-explanation-and-the-advice-linter.md) | Grounded explanation: two independent safeguards, not one | Accepted | M15 |
 | [0008](0008-document-viewer-serves-raw-rasterized-pages.md) | Document viewer serves raw rasterized pages, not OCR-preprocessed ones | Accepted | M18 |
-
-## Planned
-
-The execution plan names four decisions that must not silently change later; each
-gets an ADR when it is actually made, not before:
-
-- **No-account / session model** (M22) — retrofitting privacy architecture is a rewrite.
+| [0009](0009-retention-in-process-asyncio-sweep.md) | Retention enforced by an in-process asyncio sweep, not an external scheduler | Accepted | M22 |
 
 ## Format
 

@@ -6,8 +6,9 @@ different lifecycle (needed to re-render the original scan; never sent as
 part of the Job JSON response, which would bloat every poll response with a
 base64 blob). Same dependency-inversion seam as JobRepository -- an
 in-memory implementation now, swappable for real storage (e.g. a local
-volume, per CLAUDE.md §3) behind this interface with no caller changes,
-once M22's retention/deletion story needs it.
+volume, per CLAUDE.md §3) behind this interface with no caller changes.
+delete() (M22) makes this store, not just JobRepository, a party to
+one-click delete and the 24h auto-purge sweep.
 """
 
 import threading
@@ -20,6 +21,14 @@ class DocumentStore(ABC):
 
     @abstractmethod
     def get(self, job_id: str) -> tuple[bytes, str] | None: ...
+
+    @abstractmethod
+    def delete(self, job_id: str) -> None:
+        """Idempotent by design (M22): both the one-click delete endpoint and
+        the 24h retention sweep call this, and neither needs to know whether
+        the bytes were already gone -- unlike JobRepository.delete(), nothing
+        downstream needs a found/not-found distinction here."""
+        ...
 
 
 class InMemoryDocumentStore(DocumentStore):
@@ -34,3 +43,7 @@ class InMemoryDocumentStore(DocumentStore):
     def get(self, job_id: str) -> tuple[bytes, str] | None:
         with self._lock:
             return self._documents.get(job_id)
+
+    def delete(self, job_id: str) -> None:
+        with self._lock:
+            self._documents.pop(job_id, None)

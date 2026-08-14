@@ -1804,3 +1804,131 @@ required changing the *test's* control over time/state, not the application code
 Explain why `test_full_pipeline_e2e.py` (backend, real OCR, mocked AI) and `happy-path.spec.ts`
 (frontend, mocked everything) each catch a category of regression the other one structurally cannot
 — and why M20 needed both rather than treating one as sufficient coverage for "the full journey."
+
+---
+
+## Sprint 3 review, and M21
+
+Sprint 3 (M15–M21) closes with M20 above. M21 ("a real non-native user can complete the whole
+journey on their phone without getting confused") needs 2 real human testers on real phones —
+fundamentally not something Claude can simulate or fabricate without producing a fake "friction
+point" that would look like real evidence while being false, the same principle as D15's
+golden-letter rule. `docs/m21-phone-test-script.md` is the buildable part (recruiting guidance, a
+deliberately hands-off task list, a friction-log template, guidance for turning results into a
+top-3 fix list) — `PROGRESS.md` marks M21 **blocked**, not done and not skipped. Following M13's own
+precedent (a purely-blocked milestone with zero code gets no full Decisions/Review/Teach-back
+section here), M21 gets none either — there's no code to review questions about yet. Sprint 4 begins
+at M22 below.
+
+## M22 — One-click delete + 24h auto-purge *(done)*
+
+### Plan Gate
+
+**What.** Two things, cleanly separable: (1) a user-triggered `DELETE /jobs/{id}` that removes a
+job and its raw document bytes on request, and (2) a time-triggered background sweep that removes
+*anything* past a 24h retention window, whether or not the user ever asks — the actual privacy
+guarantee, since most users won't click delete. Both close a gap ADR-0008 named explicitly: M18's
+`DocumentStore` made uploaded bytes persist in-memory for the process's lifetime with no expiry.
+
+**Files touched.** `repositories/job_repository.py` + `repositories/document_store.py` (new
+`delete()`, `list_all()` on the job repo only); new `services/retention.py` (pure `purge_expired()`);
+`services/job_service.py` (`delete_job()`, `purge_expired()` wrappers); `api/jobs.py` (`DELETE
+/jobs/{id}`); `config/settings.py` (`retention_max_age_hours`, `retention_sweep_interval_seconds`);
+`main.py` (FastAPI `lifespan` running the sweep as a background `asyncio.Task`); new
+`frontend/src/components/DeleteButton.tsx`; `services/api.ts` (`deleteJob`); `app/result/[id]/page.tsx`
+(wiring); new `e2e/delete.spec.ts`. ADR-0009.
+
+**The trade-off.** The sweep's scheduling mechanism versus everything else that could run periodic
+work: a cron job, an external task queue (Celery/RQ + a broker), a scheduled cloud function, or a
+dedicated scheduling library (APScheduler). Chose an `asyncio.Task` started in FastAPI's own
+`lifespan`, with a plain `while True: await asyncio.sleep(...)` loop. It costs nothing new (no
+process, no dependency, no deploy target) and lives exactly as long as the app server the
+zero-cost/local-first strategy (ADR-0001) already runs — but it means the retention guarantee is
+tied to the app process's uptime, and a process restart resets the sweep's *timer* (though not any
+job's actual age, since `created_at` lives on the `Job` record itself, not on the sweep's clock).
+
+### Decisions log
+
+#### D50 — `delete()` returns whether something was deleted; `DocumentStore.delete()` doesn't
+
+**What.** `JobRepository.delete(job_id) -> bool` reports found-and-removed vs. already-absent. The
+new `DocumentStore.delete(job_id) -> None` doesn't — it's unconditionally idempotent, silently a
+no-op if nothing was there.
+
+**Why.** The two stores have different callers with different needs. The `DELETE /jobs/{id}`
+endpoint needs to answer 204 vs. 404, and the job repository's `bool` return gives it that for free,
+without a separate `get()` round-trip first. Nothing downstream ever needs to know whether document
+bytes specifically existed — `JobService.delete_job()` always tries to delete from both stores
+regardless, and the retention sweep calls `document_store.delete()` for every expired job id whether
+or not that job happened to have document bytes stored (e.g., a job that failed before `create_job`'s
+`document_store.put()` ever ran, in a hypothetical future ordering). Giving both methods the same
+signature "for consistency" would mean either faking a boolean nobody reads, or making the sweep do
+an unnecessary existence check first.
+
+**Interview angle.** *"Isn't an inconsistent interface across two structurally similar stores a code
+smell?"* Only if the inconsistency is accidental. Here it tracks a real difference in how each
+return value gets used — `JobRepository.delete()`'s boolean drives an HTTP status code; nothing
+analogous exists for document bytes. Matching signatures for their own sake, when the callers'
+actual needs differ, would be the smell.
+
+#### D51 — Delete verification happens on the client too, not just the server
+
+**What.** `DeleteButton` doesn't show "Deleted" the moment `DELETE` returns 204. It immediately
+calls `getJob()` again and only shows the success message once *that* returns a 404.
+
+**Why.** CLAUDE.md §5.6's bar is "one-click delete verified at storage layer" — the backend tests
+(`test_delete_removes_the_job_and_a_subsequent_get_returns_404`) already prove the server side. But
+the user-facing claim "this is really gone" deserves the same discipline the rest of this codebase
+applies to every other trust claim (M10's source-span linking, M11's validators, M19's verify
+prompt): don't just trust that an action succeeded because the API call didn't throw — confirm the
+consequence actually took effect before telling the user it did.
+
+**Interview angle.** *"Doesn't this double the number of requests for every delete, for a check that
+should always pass if the backend is correct?"* Yes, deliberately, for one specific action: this is
+the one operation in the whole app whose entire value proposition is "I can trust that this
+happened." A wrong 204 (a proxy caching it, a bug, a race) would otherwise show a false "deleted"
+message with nothing to ever contradict it — the user has no other way to find out. Every other
+mutation in this app (create job) is already followed by polling that would surface an inconsistency
+naturally; delete has no such follow-up, so this check *is* that follow-up.
+
+#### D52 — The confirm step is two clicks, not a modal, not one unconfirmed click
+
+**What.** `DeleteButton` has three UI stages: idle → confirming (inline, same component, no
+overlay) → deleted. Clicking "Delete my document" doesn't delete anything; it reveals "Yes, delete
+it" / "Cancel" in place.
+
+**Why.** M22's story literally says "in one click," but a single unconfirmed click on a
+data-destroying action is a bad interaction regardless of what the story's headline says — a
+misplaced tap on a phone (the primary device this app targets, per M7/M21) shouldn't silently
+destroy the only record of a real government letter. An inline two-stage confirm keeps the
+*decisive* action (the actual delete) to one click, without a modal's extra weight, while still
+requiring one deliberate additional tap to get there.
+
+**Interview angle.** *"How would you decide whether an action needs this kind of confirm step at
+all?"* Reversibility and blast radius: irreversible + high-consequence (delete a user's only copy of
+their document, or the "publish"/"send" family of actions) gets a confirm; reversible or
+low-consequence (toggling a UI state, navigating) doesn't. This is the same framework this session
+already applies to its own tool-use decisions — the parallel isn't a coincidence.
+
+### Review questions
+
+1. **Read the code.** `services/retention.py::purge_expired()` takes `now` and `max_age` as
+   parameters rather than calling `datetime.now(UTC)` internally. Given `main.py`'s sweep loop is the
+   only real caller, why does that matter enough to be worth the extra two parameters at every call
+   site, including the tests?
+2. **Design.** `JobRepository.list_all()` was added purely so the retention sweep can find expired
+   jobs, and it's noted in ADR-0009 as something a real (non-in-memory) implementation should replace
+   with an indexed query. What would that indexed query look like, and what does `list_all()` cost
+   today that it wouldn't cost against a real Postgres-backed repository?
+3. **Practice.** `main.py`'s `_retention_sweep_loop` wraps its purge call in a bare `except Exception`
+   that only logs. Compare this to how `JobService._process` handles classification/extraction/
+   explanation failures (also caught, also logged, never re-raised) — what property do all four of
+   these best-effort blocks share, and what would break if the sweep loop let an exception propagate
+   instead?
+
+### Teach-back
+
+> **"A privacy feature that can't prove its own effect isn't a privacy feature — it's a claim."**
+Explain why `DeleteButton`'s re-fetch-and-confirm-404 step (D51) exists even though the backend
+already has its own passing tests for the same behavior, and connect it to why CLAUDE.md's rule is
+"privacy claims = implementation" rather than "privacy claims = intent."

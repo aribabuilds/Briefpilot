@@ -44,6 +44,16 @@ export async function getJob(id: string): Promise<Job> {
   return (await response.json()) as Job;
 }
 
+// M22: one-click delete. Resolves on 204; the caller (DeleteButton) is
+// responsible for re-fetching the job afterward to verify it's really gone
+// rather than trusting this call's success alone.
+export async function deleteJob(id: string): Promise<void> {
+  const response = await fetch(`${JOBS_URL}/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiError(await detail(response, "Could not delete document."), response.status);
+  }
+}
+
 export async function getHealth(): Promise<HealthStatus> {
   const response = await fetch(HEALTH_URL, { cache: "no-store" });
   if (!response.ok) {

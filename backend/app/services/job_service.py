@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Protocol
 from uuid import uuid4
@@ -27,6 +27,7 @@ from app.services.document_pipeline import build_document
 from app.services.ocr import TesseractOcrService
 from app.services.quality import assess_quality
 from app.services.readability import assess_readability
+from app.services.retention import purge_expired
 from app.services.source_span_linking import link_source_spans
 from app.services.validators import validate_extraction
 
@@ -106,6 +107,22 @@ class JobService:
         if self._document_store is None:
             return None
         return self._document_store.get(job_id)
+
+    def delete_job(self, job_id: str) -> bool:
+        """One-click delete (M22). Removes both the job record and its raw
+        document bytes -- the two stores this app persists a user's data in
+        -- and reports whether there was anything to delete, so the API layer
+        can answer 204 vs. 404 without a second lookup."""
+        existed = self._repository.delete(job_id)
+        if self._document_store is not None:
+            self._document_store.delete(job_id)
+        return existed
+
+    def purge_expired(self, *, now: datetime, max_age: timedelta) -> list[str]:
+        """24h auto-purge (M22). Thin wrapper so the background sweep task in
+        main.py never reaches into this service's private repository/store
+        attributes."""
+        return purge_expired(self._repository, self._document_store, now=now, max_age=max_age)
 
     def _process(self, job_id: str, filename: str, content: bytes, content_type: str) -> None:
         try:

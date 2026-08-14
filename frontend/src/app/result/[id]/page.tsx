@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ActionChecklist } from "@/components/ActionChecklist";
+import { DeleteButton } from "@/components/DeleteButton";
 import { Disclaimer } from "@/components/Disclaimer";
 import { DocumentViewer } from "@/components/DocumentViewer";
 import { ExplanationCard } from "@/components/ExplanationCard";
@@ -70,9 +71,12 @@ export default function ResultPage() {
     };
   }, [id]);
 
+  const hasJob = state.kind !== "loading" && state.kind !== "error";
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-white px-6 py-16 dark:bg-neutral-950">
       <div className="w-full max-w-2xl">{renderState(state)}</div>
+      {hasJob && <DeleteButton jobId={id} />}
       <Link
         href="/"
         className="text-sm text-neutral-500 underline-offset-4 hover:underline dark:text-neutral-400"

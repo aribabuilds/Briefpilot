@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config.settings import Settings, get_settings
 from app.main import app
+from app.repositories.document_store import InMemoryDocumentStore
 from app.repositories.job_repository import InMemoryJobRepository
 from app.schemas.ai import DocumentExplanationResult
 from app.schemas.classification import ClassificationResult, DocumentType
@@ -57,6 +58,9 @@ def _service_with(
         classifier=classifier,
         extractor=extractor,
         explainer=explainer,
+        # Always attached, matching get_job_service()'s production wiring --
+        # otherwise M22's delete tests would trivially pass with nothing to delete.
+        document_store=InMemoryDocumentStore(),
     )
 
 
@@ -500,6 +504,45 @@ def test_empty_file_returns_400(client: TestClient) -> None:
     _override_service(_service_with(lambda content, ct: _document("x")))
     response = client.post("/api/v1/jobs", files={"file": ("letter.pdf", b"", "application/pdf")})
     assert response.status_code == 400
+
+
+# --- one-click delete (M22) -------------------------------------------------
+
+
+def test_delete_removes_the_job_and_a_subsequent_get_returns_404(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt")))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    response = client.delete(f"/api/v1/jobs/{job_id}")
+    assert response.status_code == 204
+
+    # The privacy claim (CLAUDE.md §5.6) is that it's really gone, not just
+    # that the delete call succeeded -- verify via the same GET a client would use.
+    assert client.get(f"/api/v1/jobs/{job_id}").status_code == 404
+
+
+def test_delete_removes_the_stored_document_bytes_too(client: TestClient) -> None:
+    service = _service_with(lambda content, ct: _document("Finanzamt"))
+    _override_service(service)
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+    assert service.get_document(job_id) is not None
+
+    client.delete(f"/api/v1/jobs/{job_id}")
+
+    assert service.get_document(job_id) is None
+
+
+def test_delete_unknown_job_returns_404(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("x")))
+    assert client.delete("/api/v1/jobs/nope").status_code == 404
+
+
+def test_deleting_twice_returns_404_the_second_time(client: TestClient) -> None:
+    _override_service(_service_with(lambda content, ct: _document("Finanzamt")))
+    job_id = client.post("/api/v1/jobs", files={"file": PDF}).json()["id"]
+
+    assert client.delete(f"/api/v1/jobs/{job_id}").status_code == 204
+    assert client.delete(f"/api/v1/jobs/{job_id}").status_code == 404
 
 
 def test_oversize_file_returns_413(client: TestClient) -> None:

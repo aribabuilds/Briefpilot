@@ -23,6 +23,19 @@ class JobRepository(ABC):
     @abstractmethod
     def update(self, job: Job) -> None: ...
 
+    @abstractmethod
+    def delete(self, job_id: str) -> bool:
+        """Returns whether a job existed to delete (M22: the DELETE endpoint
+        needs this to answer 204 vs. 404 without a separate get() round-trip)."""
+        ...
+
+    @abstractmethod
+    def list_all(self) -> list[Job]:
+        """Only consumer today is the M22 retention sweep, which has to look at
+        every job's created_at. A real datastore would push this down to a
+        WHERE created_at < ... query instead of materializing everything."""
+        ...
+
 
 class InMemoryJobRepository(JobRepository):
     def __init__(self) -> None:
@@ -42,3 +55,11 @@ class InMemoryJobRepository(JobRepository):
     def update(self, job: Job) -> None:
         with self._lock:
             self._jobs[job.id] = job
+
+    def delete(self, job_id: str) -> bool:
+        with self._lock:
+            return self._jobs.pop(job_id, None) is not None
+
+    def list_all(self) -> list[Job]:
+        with self._lock:
+            return list(self._jobs.values())

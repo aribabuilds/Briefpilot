@@ -6,6 +6,7 @@ frontend/.next/
 frontend/out/
 npm-debug.log*
 .pnpm-store/
+*.tsbuildinfo
 
 # Playwright (M20)
 frontend/test-results/

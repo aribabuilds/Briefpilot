@@ -57,6 +57,16 @@ class Settings(BaseSettings):
     deskew_max_angle: float = 15.0
     preprocess_max_dimension: int = 3000
 
+    # Retention / auto-purge (M22). No accounts means there's no user action
+    # that reliably signals "I'm done with this" other than the explicit
+    # delete button, so everything also expires on a timer regardless --
+    # CLAUDE.md §5.6 requires the privacy page's claims to match what the
+    # code actually does, not just what it says. The sweep interval is a
+    # separate knob from the retention window itself: it only controls how
+    # promptly an expired job actually gets swept, not how long data lives.
+    retention_max_age_hours: float = 24.0
+    retention_sweep_interval_seconds: float = 3600.0
+
     # Default is the free-tier provider (CLAUDE.md §3: no paid API calls by
     # default). OpenAI/Azure remain available as an explicit opt-in — see
     # docs/adr/0003-free-tier-llm-default-and-aiservice-naming.md.

@@ -25,3 +25,24 @@ def test_put_overwrites_a_previous_entry_for_the_same_job_id() -> None:
     store.put("job-1", content=b"old", content_type="image/png")
     store.put("job-1", content=b"new", content_type="image/jpeg")
     assert store.get("job-1") == (b"new", "image/jpeg")
+
+
+def test_delete_removes_the_stored_content() -> None:
+    store = InMemoryDocumentStore()
+    store.put("job-1", content=b"raw bytes", content_type="image/png")
+    store.delete("job-1")
+    assert store.get("job-1") is None
+
+
+def test_delete_is_idempotent_for_an_unknown_job_id() -> None:
+    store = InMemoryDocumentStore()
+    store.delete("does-not-exist")  # must not raise
+
+
+def test_delete_does_not_affect_other_jobs() -> None:
+    store = InMemoryDocumentStore()
+    store.put("job-1", content=b"first", content_type="image/png")
+    store.put("job-2", content=b"second", content_type="application/pdf")
+    store.delete("job-1")
+    assert store.get("job-1") is None
+    assert store.get("job-2") == (b"second", "application/pdf")
