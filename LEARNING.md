@@ -2147,3 +2147,108 @@ best-effort, unprovable input-side mitigation) and `validators.py`/`advice_linte
 deterministic, fully-tested output-side guarantee) — and why ADR-0010 was written to name that
 difference explicitly rather than letting "we added prompt-injection guardrails" stand as an
 unqualified claim in `PROGRESS.md`.
+
+---
+
+## M25 — Eval on 30 golden letters *(blocked, no code)*
+
+Same blocker as M12/M13, and the same handling: `eval/golden/manifest.json` still has 0 real
+letters, and cannot be filled with fabricated ones without defeating the entire purpose of the eval
+suite (D15). One thing worth recording: `docs/finanzamt_testbrief.pdf`, sitting untracked in the
+repo since early in this session, looked at first glance like it might quietly unblock this — a
+well-formed, realistic Finanzamt letter. Reading it confirmed its own footer states it's a fictional
+test document ("kein echtes Finanzamt-Schreiben"), and the names are transparent placeholders
+("Erika Beispiel," "Musterstadt" — literally "Ms. Example," "Model City"). It's a good manual
+smoke-test fixture; it is not a golden letter, and using it as one would have produced a scorecard
+that looked real while measuring nothing. `eval/run_eval.py` and `scoring.py` (M12) are ready to run
+the moment real letters exist. Following M13/M21's own precedent, no full Decisions/Review/Teach-back
+section here — there's no code to review questions about.
+
+## M26 — Architecture diagram, portfolio README rewrite *(done)*
+
+### Plan Gate
+
+**What.** `README.md` and `docs/ARCHITECTURE.md` had been untouched since roughly M1 — both still
+described Docker Compose + Postgres as the primary way to run the project, and `AIService` with its
+old two-operation shape (`extract_document`, `summarize`) from before M15 replaced `summarize` with
+`explain_document`. A hiring manager following the old README literally would have hit a stale,
+retired `GEMINI_MODEL` in the root `.env.example` and a dev path (Docker) that turned out to have
+never actually been the one exercised this entire project. M26's real job wasn't writing new prose —
+it was finding out how far the documentation had drifted from the actual system, and closing that
+gap honestly rather than polishing around it.
+
+**Files touched.** `README.md` (full rewrite), `docs/ARCHITECTURE.md` (full rewrite, new mermaid
+diagram + request-lifecycle walkthrough + "Known deviation: Postgres" section), `.env.example`
+(root — fixed the stale `GEMINI_MODEL`), `BACKLOG.md` (new Production Feature row for real Postgres
+persistence), `PROGRESS.md` (M26 row, cross-referencing the same gap).
+
+**The trade-off.** Silently rewrite the docs to describe the system as it actually is (drop all
+Postgres/Docker mentions) versus keep them and explicitly flag the gap. Chose to flag it: the
+Postgres/Docker split is exactly the kind of thing CLAUDE.md's "privacy claims = implementation"
+principle generalizes to — *any* claim a doc makes has to match the code, and the honest fix for a
+stale claim is to say so, not to quietly delete the evidence it was ever claimed. `docker-compose.yml`
+and the Dockerfiles were left in place, not deleted — removing working infrastructure code is a
+bigger, more consequential decision than a documentation session should make unilaterally.
+
+### Decisions log
+
+#### D58 — The Postgres gap was discovered by writing the README, not by auditing the code first
+
+**What.** The trigger for finding "no code anywhere reads `Settings.database_url`" wasn't a
+dedicated code-quality pass — it was trying to write an honest "how to run this" section and
+realizing the Docker instructions couldn't be verified as accurate without checking whether Postgres
+was actually load-bearing. It wasn't.
+
+**Why.** Worth naming because it's a real, generalizable lesson: documentation work that insists on
+being *checkable* against the actual code (the same discipline M23's privacy page applied) surfaces
+real bugs and drift that a purely additive feature milestone might never trip over, because feature
+work only exercises the paths it needs. Nobody was importing `database_url`, so nothing ever failed
+loudly about it being unused.
+
+**Interview angle.** *"If this gap existed since M2, why did it take until M26 to notice?"* Because
+nothing forced it to surface: the in-memory stores worked correctly for every milestone's actual
+requirements, CI never touched Postgres, and no test asserted persistence survived a restart (the
+opposite, even — M22's tests explicitly rely on in-memory behavior). A stack deviation that doesn't
+break anything has no natural trigger to be caught, which is exactly why a documentation pass that
+insists on verifying its own claims against the code is worth the time it costs.
+
+#### D59 — Docker Compose was marked "present, not verified," not deleted
+
+**What.** The README's new Docker section states plainly that the Postgres container is unconnected
+scaffold and that the path "hasn't been the one actually exercised" — but keeps the files and the
+instructions, with a pointer to M28 (the fresh-machine README test) as where this actually gets
+re-checked or fixed.
+
+**Why.** Removing `docker-compose.yml`/both `Dockerfile`s outright would be a bigger, more
+consequential call than a documentation-focused milestone should make on its own — CLAUDE.md §4
+lists Postgres in Docker Compose as a "decided" stack choice, and un-deciding it is exactly the kind
+of thing that should go through the owner's review (the "full speed, review later" authorization
+covers building and documenting honestly, not silently reversing a stack decision CLAUDE.md itself
+calls frozen).
+
+**Interview angle.** *"Isn't leaving broken-ish infrastructure in the repo worse than removing it?"*
+Not when it's labeled accurately. The risk documentation is supposed to prevent is someone trusting
+something false; a clearly-flagged "present but unverified" section prevents that just as well as
+deletion would, while preserving the owner's ability to decide whether Docker gets fixed, replaced,
+or removed — a decision this session correctly didn't make unilaterally.
+
+### Review questions
+
+1. **Read the code.** `docs/ARCHITECTURE.md`'s new "Known deviation: Postgres" section says
+   `Settings.database_url` is "a dead field nothing reads." Grep the codebase and confirm that for
+   yourself — what would you look for to be sure, beyond a literal string search for `database_url`?
+2. **Design.** The new README frames in-memory-only storage as accidentally *more* private than the
+   24h auto-purge promises (everything's gone on restart, not just after 24h). Is that framing
+   honest, or does it risk normalizing an architecture gap by finding a silver lining in it — where's
+   the line between "an honest upside" and "spin"?
+3. **Practice.** No ADR was written for M26, on the reasoning that documentation-only milestones
+   don't clear the bar (same as M16/M17/M23). But discovering the Postgres/CLAUDE.md §4 conflict
+   feels closer to an architectural finding than a copy edit. Should that specific finding have its
+   own ADR even though the milestone as a whole didn't need one — why or why not?
+
+### Teach-back
+
+> **"A README's job is to be re-derivable from the code at any time — the moment it can't be, it's not documentation anymore, it's historical fiction."**
+Explain how writing an honest "how to run this" section surfaced a real, un-caught architecture
+deviation (Postgres never wired) that six months of feature milestones didn't — and what that implies
+about treating documentation passes as a form of testing, not just writing.

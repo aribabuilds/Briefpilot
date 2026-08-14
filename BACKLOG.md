@@ -45,6 +45,7 @@ Never cut: validators, eval suite, deletion, disclaimer.
 | Sentry error tracking | Free tier allowed **only** if no card is required — verify before proposing |
 | Horizontal scaling / job queue (Celery, RQ) | Current design is synchronous + polling; fine for demo load |
 | Multi-tenancy | Requires accounts (out of scope) |
+| Real Postgres persistence (CLAUDE.md §4 names this as decided) | `JobRepository`/`DocumentStore` have been in-memory only since M2/M18 — no driver in `requirements.txt`, `Settings.database_url` is unread. Deliberate for a single free process (ADR-0001) and it's what makes 24h auto-purge/one-click delete simple to verify (ADR-0009); `docker-compose.yml`'s Postgres container is unconnected scaffold. Needed once this runs as more than one instance or has to survive a restart — see docs/ARCHITECTURE.md's "Known deviation: Postgres" |
 
 ## Future Enhancement (post-MVP, Sprint 5+ candidates)
 
