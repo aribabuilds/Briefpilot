@@ -1701,3 +1701,106 @@ Explain why M19 treats "this field is exactly here" and "we genuinely don't know
 is" as two outcomes of one interaction, rather than only building the happy path and leaving the
 unverified case to fail silently — and connect it to why that mirrors the extraction pipeline's own
 null-not-guess discipline one layer up, in the UI instead of the data.
+
+---
+
+## M20 — Regression tests for the whole journey *(done — closes Sprint 3)*
+
+### Plan Gate
+
+**What.** Two genuinely new pieces of test infrastructure, not incremental additions to existing
+suites: `test_full_pipeline_e2e.py` (backend) proves classification, extraction, and explanation
+all stay correctly wired together in one real-OCR job — something no existing e2e test covered.
+`e2e/happy-path.spec.ts` is the project's first Playwright test — a frontend smoke test of the
+actual rendered app, not components in isolation.
+
+**Files touched.** New `backend/app/tests/test_full_pipeline_e2e.py`; new
+`frontend/playwright.config.ts`, `frontend/e2e/happy-path.spec.ts`; `frontend/package.json`
+(`@playwright/test`, `test:e2e` script); `.github/workflows/ci.yml` (2 new frontend steps);
+`.gitignore` (Playwright artifact directories).
+
+**The trade-off.** Mock every backend call in the Playwright spec versus running it against a real
+backend (with real or stubbed Tesseract/Gemini) in CI. Chose mocking, deliberately: a frontend smoke
+test's job is proving the *rendering and interaction logic* works given a known API shape, not
+re-proving the pipeline itself works — that's what the backend's own e2e tests are for. Mocking also
+means this test costs nothing and needs nothing running except the frontend's own dev server, in
+CI or locally.
+
+### Decisions log
+
+#### D47 — The full-chain test asserts on data crossing between steps, not just that each step ran
+
+**What.** `test_the_whole_pipeline_stays_correctly_wired_together` doesn't just check that
+`doc_type`, `extraction`, and `explanation` are each non-null — it checks that `sender.source_span`
+was found (proving extraction ran against the *same* real `OcrDocument` OCR produced) and that the
+explanation text actually contains "Finanzamt" (proving it was grounded in that same extraction,
+not a disconnected canned string).
+
+**Why.** A weaker test — "each of these four fields is populated" — could pass even if a future
+refactor accidentally ran extraction against stale OCR output, or explanation against a different
+job's extraction. Asserting on data that had to *flow* from one step to the next is what actually
+catches a wiring regression; asserting presence alone only catches a step being skipped entirely.
+
+**Interview angle.** *"Isn't checking `"Finanzamt" in explanation.text` a fragile assertion tied to a
+specific fake's wording?"* Yes, deliberately — the fake explainer's text was chosen specifically to
+make grounding checkable this way. A fragile-but-meaningful assertion beats a robust-but-vacuous one
+here; the alternative (checking `explanation.text` is merely non-empty) would pass even if
+explanation silently stopped receiving the extraction at all.
+
+#### D48 — The Playwright spec mocks the network layer, not the React component tree
+
+**What.** Every backend interaction is intercepted at the `page.route()` level (real `fetch` calls,
+fake responses) — nothing is mocked inside the React components themselves, and no component is
+rendered in isolation outside the actual Next.js app.
+
+**Why.** Mocking at the network boundary means the test exercises the real `services/api.ts`
+functions, the real polling loop in `page.tsx`, and the real conditional rendering logic in
+`DoneView` — the exact code that ships to production, with only the one true external dependency
+(the backend) replaced. Mocking deeper (e.g., swapping out `getJob` itself) would leave gaps between
+what the test proves and what a real user's browser actually does.
+
+**Interview angle.** *"Why not just run this against your real dev backend in CI instead of mocking
+it?"* Determinism and cost: a real backend needs Tesseract installed in the CI image and either no
+AI key (making extraction/explanation always null, defeating the point of testing the full UI) or a
+real Gemini key spending real (if free-tier) quota on every CI run — this session's own quota
+exhaustion is a live example of exactly that fragility. Mocked responses are instant, free, and
+never flake because of an external service's availability.
+
+#### D49 — A racy assertion on a transient UI state was fixed by giving it its own test, not by adding a wait
+
+**What.** The first version of the happy-path spec asserted `"Reading your letter…"` was visible
+mid-flow, in the same test that also asserted the terminal "done" state — and failed intermittently,
+because the mocked poll could resolve to "done" before that assertion's turn ran. The fix wasn't a
+longer timeout or an artificial delay; it was moving the processing-state assertion into its own
+test, with a mock that *never* resolves to a terminal status.
+
+**Why.** Adding a `waitForTimeout` or similar would have "fixed" the flake by making the test slower
+and still fundamentally racy — a transient state that's *supposed* to disappear quickly is the wrong
+thing to assert on in a test that also lets it disappear. Testing it properly meant controlling the
+mock so that state is stable for the whole test, not chasing a moving target with a longer clock.
+
+**Interview angle.** *"How do you tell a flaky test caused by a real bug apart from one caused by bad
+test design?"* Here, the app's behavior was correct the whole time — the poll really did transition
+states exactly as designed. The flake was entirely in the test's assumption that a transient state
+would still be visible by the time an assertion got around to checking it. The tell: fixing it
+required changing the *test's* control over time/state, not the application code.
+
+### Review questions
+
+1. **Read the code.** `test_full_pipeline_e2e.py`'s `_fake_explainer` ignores its `extraction`
+   argument entirely and returns a fixed string. Why is that acceptable for this test's purpose,
+   given D47 says the test needs to prove real data flows between steps?
+2. **Design.** The Playwright config sets `retries: process.env.CI ? 2 : 0`. Given D49's root cause
+   (a mock resolving faster than an assertion could run), would retries have actually masked that
+   bug instead of the fix that was made — and what does that imply about when retries are a
+   reasonable safety net versus a way to hide a real race?
+3. **Practice.** This closes Sprint 3 (M15–M20). Across those six milestones, name one thing that
+   was true of the *first* milestone in the project (M1) that is still true now, and one thing about
+   how work gets verified that has genuinely changed.
+
+### Teach-back
+
+> **"Two different kinds of 'the whole thing works' — proving the pipeline stays wired together, and proving the UI carries a real user through it — are not the same test, and neither one is optional."**
+Explain why `test_full_pipeline_e2e.py` (backend, real OCR, mocked AI) and `happy-path.spec.ts`
+(frontend, mocked everything) each catch a category of regression the other one structurally cannot
+— and why M20 needed both rather than treating one as sufficient coverage for "the full journey."

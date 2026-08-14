@@ -28,6 +28,13 @@ jobs:
       # unformatted code, so nothing enforced prettier until this step existed.
       - run: npm run format:check
       - run: npm run build
+      # M20: Playwright smoke test. Every backend call is mocked via route
+      # interception in the spec itself (see e2e/happy-path.spec.ts), so this
+      # needs no backend, no Tesseract, no Gemini key/quota -- a fast, fully
+      # deterministic check that the actual rendered app (not a component in
+      # isolation) still carries a user through the real journey.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
 
   backend:
     name: Backend

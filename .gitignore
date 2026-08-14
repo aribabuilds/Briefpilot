@@ -7,6 +7,12 @@ frontend/out/
 npm-debug.log*
 .pnpm-store/
 
+# Playwright (M20)
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+
 # Python
 __pycache__/
 *.pyc
