@@ -51,3 +51,9 @@ export async function getHealth(): Promise<HealthStatus> {
   }
   return (await response.json()) as HealthStatus;
 }
+
+// M18: a URL, not a fetch wrapper -- <img src> loads it directly, and the
+// browser's own HTTP cache handles repeat views for free.
+export function getDocumentPageUrl(jobId: string, page: number): string {
+  return `${JOBS_URL}/${jobId}/pages/${page}`;
+}

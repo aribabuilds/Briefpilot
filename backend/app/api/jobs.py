@@ -1,9 +1,12 @@
+import io
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 
 from app.config.settings import Settings, get_settings
 from app.schemas.job import Job, JobCreatedResponse
+from app.services.ingestion import IngestionError, rasterize
 from app.services.job_service import JobService, get_job_service
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -69,3 +72,52 @@ async def get_job(
             detail="Job not found.",
         )
     return job
+
+
+@router.get(
+    "/{job_id}/pages/{page_number}",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+async def get_document_page(
+    job_id: str,
+    page_number: int,
+    service: ServiceDep,
+    settings: SettingsDep,
+) -> Response:
+    """Renders the RAW (un-deskewed, un-preprocessed) rasterized page — the
+    original scan the user actually uploaded (M18's story: "see the original
+    scan of my letter"). Deliberately not the OCR-preprocessed image
+    (grayscale/deskewed/contrast-enhanced, services/preprocess.py) that OCR's
+    bounding boxes are actually relative to -- reconciling that alignment
+    question, if it turns out to matter, is M19's job, not this one's.
+    """
+    stored = service.get_document(job_id)
+    if stored is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job or document not found.",
+        )
+    content, content_type = stored
+
+    try:
+        pages = rasterize(
+            content,
+            content_type,
+            max_pages=settings.max_document_pages,
+            render_scale=settings.ocr_render_scale,
+        )
+    except IngestionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    if page_number < 0 or page_number >= len(pages):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Page {page_number} does not exist ({len(pages)} page(s)).",
+        )
+
+    buffer = io.BytesIO()
+    pages[page_number].save(buffer, format="PNG")
+    return Response(content=buffer.getvalue(), media_type="image/png")

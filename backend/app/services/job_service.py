@@ -9,6 +9,7 @@ from uuid import uuid4
 import structlog
 
 from app.config.settings import get_settings
+from app.repositories.document_store import DocumentStore, InMemoryDocumentStore
 from app.repositories.job_repository import InMemoryJobRepository, JobRepository
 from app.schemas.ai import (
     DocumentExplanationRequest,
@@ -69,6 +70,7 @@ class JobService:
         classifier: ClassifierRunner | None = None,
         extractor: ExtractorRunner | None = None,
         explainer: ExplainerRunner | None = None,
+        document_store: DocumentStore | None = None,
     ) -> None:
         self._repository = repository
         self._runner = runner
@@ -78,6 +80,7 @@ class JobService:
         self._classifier = classifier
         self._extractor = extractor
         self._explainer = explainer
+        self._document_store = document_store
 
     def create_job(self, *, filename: str, content: bytes, content_type: str) -> Job:
         job = Job(
@@ -87,11 +90,22 @@ class JobService:
             created_at=datetime.now(UTC),
         )
         self._repository.add(job)
+        # Stored immediately, independent of OCR completing -- the viewer
+        # (M18) can render the original scan even while the job is still
+        # processing, and this is the only place the raw bytes are ever
+        # available (the pipeline consumes them and moves on).
+        if self._document_store is not None:
+            self._document_store.put(job.id, content=content, content_type=content_type)
         self._executor.submit(self._process, job.id, filename, content, content_type)
         return job
 
     def get_job(self, job_id: str) -> Job | None:
         return self._repository.get(job_id)
+
+    def get_document(self, job_id: str) -> tuple[bytes, str] | None:
+        if self._document_store is None:
+            return None
+        return self._document_store.get(job_id)
 
     def _process(self, job_id: str, filename: str, content: bytes, content_type: str) -> None:
         try:
@@ -260,4 +274,5 @@ def get_job_service() -> JobService:
         classifier=_classify,
         extractor=_extract,
         explainer=_explain,
+        document_store=InMemoryDocumentStore(),
     )

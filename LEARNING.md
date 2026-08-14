@@ -1521,3 +1521,89 @@ Explain why treating M15 and M16 as having quietly satisfied most of M17's requi
 either padding the milestone with unnecessary new work to make it feel substantial, or skipping it
 outright — is the more defensible engineering call, and what that says about writing a milestone plan
 before the incremental order of implementation is fully known.
+
+---
+
+## M18 — Document viewer: raw scan, coordinate normalization *(done)*
+
+### Plan Gate
+
+**What.** Before M18, raw upload bytes never survived past the OCR call that consumed them — nothing
+existed to render. New `DocumentStore` persists them; a new `GET /jobs/{id}/pages/{n}` reuses
+`ingestion.rasterize()` (OCR's own first step) to serve the RAW, un-preprocessed page as PNG.
+Frontend `DocumentViewer` renders it, plus a permanent, non-interactive proof-of-concept overlay
+(using real `source_span` data already on the frontend) demonstrating the coordinate math M19 will
+need.
+
+**Files touched.** New `backend/app/repositories/document_store.py`; `backend/app/api/jobs.py` (new
+endpoint); `backend/app/services/job_service.py` (`document_store` wiring); new
+`frontend/src/lib/bbox.ts`, `frontend/src/components/DocumentViewer.tsx`;
+`frontend/src/services/api.ts` (`getDocumentPageUrl`); `frontend/src/app/result/[id]/page.tsx`;
+`docs/adr/0008-document-viewer-serves-raw-rasterized-pages.md`.
+
+**The trade-off.** Serving the raw rasterized image (what the user recognizes as their letter)
+versus the OCR-preprocessed one (grayscale/deskewed — what every `BBox` is actually computed
+against, guaranteeing pixel-exact overlay alignment). Chose raw, for M18's literal story ("see the
+original scan") — and named the alignment gap explicitly as an open question for M19 rather than
+silently assuming it away. Full reasoning in ADR-0008.
+
+### Decisions log
+
+#### D42 — The raw page image is re-rasterized on request, not cached at upload time
+
+**What.** `GET /jobs/{id}/pages/{n}` calls `ingestion.rasterize()` fresh on every request, from the
+stored raw bytes — it does not pre-render and cache PNGs when the job is created.
+
+**Why.** Simplicity first, matching this project's own "walking skeleton, optimize later" posture
+(the same one that shipped M2's in-memory job store before ever discussing Postgres). Most letters
+are 1-3 pages; re-rasterizing on each of a handful of requests is cheap relative to the OCR pass
+that already happened on the same bytes, and standard HTTP caching (the browser's own cache for a
+repeated `<img>` request) already avoids most redundant work without any server-side cache to keep
+correct.
+
+**Interview angle.** *"What would make you add server-side caching here?"* Evidence, not
+anticipation — real usage showing this endpoint is actually hit often enough, on large enough
+documents, for re-rasterization cost to matter. Caching a value that's cheap to recompute and rarely
+requested is complexity spent on a problem that doesn't exist yet.
+
+#### D43 — `DocumentStore` is a separate boundary from `JobRepository`, not a field on `Job`
+
+**What.** Raw bytes live in their own store, looked up by job ID through `JobService.get_document()`
+— they are never part of the `Job`/`JobResult` Pydantic models that get serialized to JSON on every
+poll.
+
+**Why.** Same separation-of-concerns argument ADR-0004 already made for embedding `BBox`es directly
+in `SourceSpan` rather than requiring a second lookup — just pointed the other way here: some data
+belongs *with* the record (small, always needed, JSON-native) and some belongs *behind* a separate
+lookup (large, binary, needed only when explicitly requested). Putting raw file bytes on `JobResult`
+would mean every single poll response — dozens of them, at `POLL_INTERVAL_MS = 1200`, for the
+duration of processing — carries a multi-megabyte payload nothing but the document viewer ever
+reads.
+
+**Interview angle.** *"Why not base64-encode the image into the JSON response instead of a separate
+binary endpoint?"* Base64 inflates binary data by roughly a third and forces the whole payload to be
+re-fetched on every poll instead of once, cached by the browser like any other image request — a
+dedicated binary endpoint is both smaller on the wire and only fetched when actually needed.
+
+### Review questions
+
+1. **Read the code.** `get_document_page` calls `rasterize()` with `settings.max_document_pages` and
+   `settings.ocr_render_scale` — the exact same settings OCR itself uses. What would visually change
+   about the served image if `render_scale` were lowered just for this endpoint, and why might that
+   be a reasonable thing to do that this implementation doesn't do yet?
+2. **Design.** `DocumentViewer`'s permanent overlay only draws boxes for fields whose `source_span`
+   is non-null. Trace through what happens on a letter where extraction ran but zero fields resolved
+   a source span (M10's unverified-confidence-cap path) — what does the viewer show, and is that the
+   right default given M19 hasn't been built yet?
+3. **Practice.** ADR-0008 explicitly defers the deskew-alignment question to M19 "with real evidence
+   (how much do real photos actually get deskewed?) instead of a guess made now." What evidence,
+   specifically, would need to exist before that decision could actually be made — and does anything
+   in this project currently produce it?
+
+### Teach-back
+
+> **"Naming an open question honestly is not the same as leaving it unsolved."**
+Explain the difference between ADR-0008 punting on the deskew-alignment problem by never mentioning
+it, versus explicitly deciding "raw image for now, here's exactly what would need to be true to
+revisit this" — and why the second one is real engineering judgment even though the code does the
+same thing either way today.

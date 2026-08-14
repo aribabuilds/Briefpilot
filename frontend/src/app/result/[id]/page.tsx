@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { ActionChecklist } from "@/components/ActionChecklist";
 import { Disclaimer } from "@/components/Disclaimer";
+import { DocumentViewer } from "@/components/DocumentViewer";
 import { ExplanationCard } from "@/components/ExplanationCard";
 import { ExtractionSummary } from "@/components/ExtractionSummary";
 import { RetakePrompt } from "@/components/RetakePrompt";
@@ -128,6 +129,13 @@ function renderState(state: ViewState) {
           {result?.explanation && <ExplanationCard explanation={result.explanation} />}
           {result?.extraction && <ActionChecklist items={buildChecklist(result.extraction)} />}
           {result?.extraction && <ExtractionSummary extraction={result.extraction} />}
+          {result && (
+            <DocumentViewer
+              jobId={state.job.id}
+              pageCount={result.page_count}
+              extraction={result.extraction}
+            />
+          )}
           <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
             {result?.text || "(no text found)"}
           </pre>
